@@ -42,6 +42,7 @@
 - `static/style.css`: Refined styles with Fraunces/Inter typography and responsive layout.
 
 ## [DEPLOYMENT]
+- **Git repo:** `git@github.com:Xas-21/Novotel_Medina.git` (branch `main`) — see `README.md` for the full agent handoff guide
 - **Host:** `/opt/data/novotel/` on Hostinger VPS (187.55.225.134)
 - **Container name:** `novotel` (image `novotel-web`)
 - **Subdomain:** `https://novotel.as-web.cloud` (Traefik v3 + Let's Encrypt, network `proxy`)
