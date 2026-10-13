@@ -47,6 +47,7 @@
 
   let state = {
     view: "today",
+    section: "duty",
     selectedDate: todayStr(),
     report: null,
     user: null,
@@ -66,7 +67,16 @@
   let ws = null;
   let saveDebounceTimer = null;
 
-  function todayStr(){ return new Date().toISOString().slice(0,10); }
+  function todayStr(){
+    return new Date().toLocaleDateString('en-CA', {timeZone: 'Asia/Riyadh'});
+  }
+
+  function canWrite(role, section){
+    if (role === 'admin') return section === 'duty' || section === 'night';
+    if (role === 'staff') return section === 'duty';
+    if (role === 'night') return section === 'night';
+    return false;
+  }
   function fmtDate(d){ const dt=new Date(d+"T00:00:00"); return dt.toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'}); }
   function priorityMeta(v){ return PRIORITIES.find(p=>p.v===v) || PRIORITIES[0]; }
   function statusMeta(v){ return STATUSES.find(s=>s.v===v) || STATUSES[0]; }
@@ -249,6 +259,7 @@
 
   async function persistReport() {
     if (!state.report) return;
+    if (!state.user || !canWrite(state.user.role, 'duty')) return;
     const body = {
       date: state.report.date,
       status: state.report.status,
@@ -405,6 +416,8 @@
   async function enterApp() {
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('dmrRoot').style.display = 'flex';
+    state.section = (state.user && state.user.role === 'night') ? 'night' : 'duty';
+    state.view = 'today';
     initWebSocket();
     state.loading = true;
     render();
@@ -432,13 +445,21 @@
     const usersBtn = document.getElementById('usersNavBtn');
     if (usersBtn) usersBtn.style.display = (state.user && state.user.role === 'admin') ? 'flex' : 'none';
 
-    document.querySelectorAll('.dmr-navbtn').forEach(b => b.classList.toggle('active', b.dataset.view === state.view));
+    document.querySelectorAll('.dmr-navbtn').forEach(b => {
+      const sectionOk = !b.dataset.section || b.dataset.section === state.section;
+      b.classList.toggle('active', sectionOk && b.dataset.view === state.view);
+    });
     updateSyncIndicator();
 
     const main = document.getElementById('dmrMain');
     if (!main) return;
 
-    if (state.loading) {
+    if (state.view === 'users') {
+      main.innerHTML = renderUsers();
+      loadUsers();
+    } else if (state.section === 'night' || state.section === 'full') {
+      main.innerHTML = window.renderNightSection();
+    } else if (state.loading) {
       main.innerHTML = '<div class="dmr-empty"><h3>Loading report data…</h3></div>';
     } else if (state.view === 'today') {
       main.innerHTML = renderToday();
@@ -448,9 +469,6 @@
     } else if (state.view === 'analysis') {
       main.innerHTML = renderAnalysis();
       loadAnalysis();
-    } else if (state.view === 'users') {
-      main.innerHTML = renderUsers();
-      loadUsers();
     }
 
     attachHandlers();
@@ -523,6 +541,7 @@
 
   function renderToday() {
     const r = state.report;
+    const dutyWritable = canWrite(state.user && state.user.role, 'duty');
     return `
     <div class="dmr-headline">
       <h1>Duty Manager Round</h1>
@@ -541,12 +560,12 @@
         ✓ Report submitted ${r.submittedAt ? 'on ' + new Date(r.submittedAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : ''} ${r.submittedBy ? 'by ' + escapeHtml(r.submittedBy) : ''}
       </div>
       <div style="display:flex;gap:8px;">
-        ${state.user && state.user.role === 'admin' ? `<button class="dmr-btn dmr-btn-ghost dmr-btn-sm" id="reopenBtn">Reopen to Edit</button>` : ''}
+        ${dutyWritable && state.user && state.user.role === 'admin' ? `<button class="dmr-btn dmr-btn-ghost dmr-btn-sm" id="reopenBtn">Reopen to Edit</button>` : ''}
         <button class="dmr-btn dmr-btn-primary dmr-btn-sm" id="exportTodayPdf">Export Official PDF</button>
       </div>
     </div>` : ''}
 
-    <div id="reportBody" class="${r.status==='submitted'?'dmr-locked':''}">
+    <div id="reportBody" class="${r.status==='submitted' || !dutyWritable ? 'dmr-locked' : ''}">
       <div class="dmr-card dmr-section-card">
         <h3>Shift & Operations Overview</h3>
         <div class="dmr-row">
@@ -640,7 +659,7 @@
       </details>
     </div>
 
-    ${r.status==='submitted' ? '' : `
+    ${(r.status==='submitted' || !dutyWritable) ? '' : `
     <div class="dmr-card" style="padding:18px;margin-top:10px;text-align:center;">
       <button class="dmr-btn dmr-btn-primary" id="submitReportBtn" style="width:100%;justify-content:center;padding:13px;font-size:14.5px;">✓ Submit & Close Daily Report</button>
       <div class="dmr-sub" style="margin:8px 0 0;">Submitting finalizes the shift round, logs your signature, and archives the report.</div>
@@ -1404,7 +1423,11 @@
     }
 
     document.querySelectorAll('[data-view]').forEach(b => {
-      b.onclick = () => { state.view = b.dataset.view; render(); };
+      b.onclick = () => {
+        if (b.dataset.section) state.section = b.dataset.section;
+        state.view = b.dataset.view;
+        render();
+      };
     });
 
     document.querySelectorAll('.dmr-acc').forEach(acc => {

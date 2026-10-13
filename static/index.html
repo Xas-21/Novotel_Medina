@@ -33,9 +33,16 @@
         <span id="syncText">Connected</span>
       </div>
 
-      <button class="dmr-navbtn active" data-view="today">Today's Report</button>
-      <button class="dmr-navbtn" data-view="archive">Archive</button>
-      <button class="dmr-navbtn" data-view="analysis">Analysis</button>
+      <div class="nav-section">Duty Manager</div>
+      <button class="dmr-navbtn active" data-section="duty" data-view="today">Today's Report</button>
+      <button class="dmr-navbtn" data-section="duty" data-view="archive">Archive</button>
+      <button class="dmr-navbtn" data-section="duty" data-view="analysis">Analysis</button>
+      <div class="nav-section">Night Manager</div>
+      <button class="dmr-navbtn" data-section="night" data-view="today">Today's Report</button>
+      <button class="dmr-navbtn" data-section="night" data-view="archive">Archive</button>
+      <button class="dmr-navbtn" data-section="night" data-view="analysis">Analysis</button>
+      <div class="nav-section">General</div>
+      <button class="dmr-navbtn" data-section="full" data-view="today">Full Report</button>
       <button class="dmr-navbtn" data-view="users" id="usersNavBtn" style="display:none;">Users</button>
 
       <div class="dmr-nav-foot">
@@ -57,5 +64,6 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
   <script src="/assets/app.js"></script>
+  <script src="/assets/night.js"></script>
 </body>
 </html>
