@@ -943,6 +943,7 @@
         <div class="dmr-field"><label>Title / Position</label><input id="u-title" placeholder="e.g. Duty Manager"></div>
         <div class="dmr-field"><label>Role</label><select id="u-role">
           <option value="staff">Staff</option>
+          <option value="night">Night Manager</option>
           <option value="admin">Admin</option>
         </select></div>
       </div>

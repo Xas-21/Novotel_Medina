@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 import aiosqlite
 from app.database import get_db
 from app.models import ReportSave, ReportIndexItem, TrustYouData
-from app.auth import get_current_user, require_admin, TokenData
+from app.auth import can_write, get_current_user, require_admin, require_auth, TokenData
 from app.ws import ws_manager
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -75,7 +75,7 @@ def default_report_dict(date: str) -> dict:
     }
 
 @router.get("/index")
-async def get_reports_index(db: aiosqlite.Connection = Depends(get_db)):
+async def get_reports_index(db: aiosqlite.Connection = Depends(get_db), user: TokenData = Depends(require_auth)):
     cursor = await db.execute("""
         SELECT r.date, r.status, r.submitted_at, r.submitted_by, r.occupancy,
                COUNT(n.id) as notes_count
@@ -98,7 +98,7 @@ async def get_reports_index(db: aiosqlite.Connection = Depends(get_db)):
     return results
 
 @router.get("")
-async def get_report(date: str, db: aiosqlite.Connection = Depends(get_db)):
+async def get_report(date: str, db: aiosqlite.Connection = Depends(get_db), user: TokenData = Depends(require_auth)):
     cursor = await db.execute("SELECT * FROM reports WHERE date = ?", (date,))
     row = await cursor.fetchone()
     
@@ -165,6 +165,9 @@ async def save_report(
     db: aiosqlite.Connection = Depends(get_db),
     user: Optional[TokenData] = Depends(get_current_user)
 ):
+    if not user or not can_write(user.role, "duty"):
+        raise HTTPException(status_code=403, detail="Duty section is read-only for this user")
+
     checklists_json = json.dumps({k: [item.dict() for item in v] for k, v in data.checklists.items()})
     cafeteria_json = json.dumps([item.dict() for item in data.cafeteriaItems])
     rooms_json = json.dumps(data.roomsInspection)
@@ -228,6 +231,9 @@ async def submit_report(
     db: aiosqlite.Connection = Depends(get_db),
     user: Optional[TokenData] = Depends(get_current_user)
 ):
+    if not user or not can_write(user.role, "duty"):
+        raise HTTPException(status_code=403, detail="Duty section is read-only for this user")
+
     now_str = datetime.utcnow().isoformat()
     submitted_by = (user.full_name + (f" — {user.title}" if user.title else "")) if user else "Duty Manager"
     
@@ -300,7 +306,8 @@ async def delete_report(
 async def get_analysis(
     date: str,
     range: str = Query("week", pattern="^(week|month)$"),
-    db: aiosqlite.Connection = Depends(get_db)
+    db: aiosqlite.Connection = Depends(get_db),
+    user: TokenData = Depends(require_auth)
 ):
     try:
         ref_date = datetime.strptime(date, "%Y-%m-%d")
