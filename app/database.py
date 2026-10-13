@@ -94,6 +94,39 @@ async def init_db():
         )
         """)
 
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+        """)
+        await db.execute(
+            "INSERT INTO settings (key, value) SELECT 'hotel_rooms', '394' WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'hotel_rooms')"
+        )
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS night_reports (
+            date TEXT PRIMARY KEY,
+            status TEXT NOT NULL DEFAULT 'draft',
+            submitted_at TEXT,
+            submitted_by TEXT,
+            rooms_available INTEGER NOT NULL,
+            rooms_occupied REAL NOT NULL DEFAULT 0,
+            rooms_revenue REAL NOT NULL DEFAULT 0,
+            fb_revenue REAL NOT NULL DEFAULT 0,
+            me_revenue REAL NOT NULL DEFAULT 0,
+            ood_revenue REAL NOT NULL DEFAULT 0,
+            other_revenue REAL NOT NULL DEFAULT 0,
+            segments_json TEXT NOT NULL DEFAULT '[]',
+            forecast_json TEXT NOT NULL DEFAULT '[]',
+            groups_json TEXT NOT NULL DEFAULT '[]',
+            vip_json TEXT NOT NULL DEFAULT '[]',
+            checklist_json TEXT NOT NULL DEFAULT '[]',
+            comments_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """)
+
         # Migration: add new user columns if the DB was created with the older schema
         cols = [r[1] for r in await (await db.execute("PRAGMA table_info(users)")).fetchall()]
         if 'first_name' not in cols:
