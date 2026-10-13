@@ -347,3 +347,75 @@ def test_analysis_is_available_to_a_logged_in_user(api):
     assert res.headers["content-type"].startswith("application/json")
     assert isinstance(res.json(), dict)
     assert _night_count(db_path) == 0
+
+
+def test_month_analysis_series_and_ood_grand_total(api):
+    client, db_path = api
+    headers = _headers(USERS["night"])
+    sample_total = 83561.14 + 12833.52 + 0 + 0 + 406.96
+    assert money(sample_total) == 96802
+
+    assert client.put("/api/night", json=OCT_8, headers=headers).status_code == 200
+    saved = client.get("/api/night?date=2026-10-08", headers=headers).json()
+    assert money(saved["calculated"]["grandTotal"]) == 96802
+
+    month = client.get(
+        "/api/night/analysis?date=2026-10-08&range=month",
+        headers=headers,
+    ).json()
+    assert month["labels"] == [f"{day:02d}" for day in range(1, 9)]
+    assert month["occupancy"] == [None] * 7 + [60]
+    assert month["adr"] == [None] * 7 + [356]
+    assert month["revpar"] == [None] * 7 + [212]
+    assert month["revenue"] == {
+        "rooms": money(83561.14),
+        "fb": money(12833.52),
+        "me": money(0),
+        "ood": money(0),
+        "other": money(406.96),
+    }
+    assert month["segments"] == [{"code": code, "rooms": 0} for code in SEGMENT_CODES]
+    assert _night_count(db_path) == 1
+
+    second = dict(OCT_8)
+    second["date"] = "2026-10-01"
+    second["oodRevenue"] = 100
+    second["segments"] = [{"code": "SLA", "rooms": 12}]
+    assert client.put("/api/night", json=second, headers=headers).status_code == 200
+    other = client.get("/api/night?date=2026-10-01", headers=headers).json()
+    assert money(other["calculated"]["grandTotal"]) == money(sample_total + 100)
+
+    month = client.get(
+        "/api/night/analysis?date=2026-10-08&range=month",
+        headers=headers,
+    ).json()
+    assert month["occupancy"][0] == money((235 / 394) * 100)
+    assert month["occupancy"][-1] == 60
+    assert month["revenue"] == {
+        "rooms": money(83561.14 * 2),
+        "fb": money(12833.52 * 2),
+        "me": money(0),
+        "ood": money(100),
+        "other": money(406.96 * 2),
+    }
+    assert month["segments"] == [{"code": code, "rooms": 0} for code in SEGMENT_CODES]
+
+    selected = client.get(
+        "/api/night/analysis?date=2026-10-01&range=month",
+        headers=headers,
+    ).json()
+    assert selected["labels"] == ["01"]
+    assert selected["segments"] == [{"code": "SLA", "rooms": 12}] + [
+        {"code": code, "rooms": 0} for code in SEGMENT_CODES if code != "SLA"
+    ]
+
+    week = client.get(
+        "/api/night/analysis?date=2026-10-08&range=week",
+        headers=headers,
+    ).json()
+    assert week["labels"] == ["02", "03", "04", "05", "06", "07", "08"]
+    assert week["occupancy"] == [None] * 6 + [60]
+    assert week["adr"] == [None] * 6 + [356]
+    assert week["revpar"] == [None] * 6 + [212]
+    assert week["revenue"]["ood"] == 0
+    assert week["segments"][0] == {"code": "SLA", "rooms": 0}

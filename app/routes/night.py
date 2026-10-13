@@ -262,9 +262,73 @@ async def get_night_analysis(
     date: str,
     range: str = Query("week", pattern="^(week|month)$"),
     _: TokenData = Depends(require_auth),
+    db: aiosqlite.Connection = Depends(get_db),
 ):
-    # shortcut: empty series until the chart task, fill when analysis tests land
-    return {"date": date, "range": range, "labels": [], "occupancy": [], "adr": [], "revpar": []}
+    report_date = _parse_date(date)
+    start = report_date - timedelta(days=6) if range == "week" else report_date.replace(day=1)
+    cursor = await db.execute(
+        "SELECT * FROM night_reports WHERE date >= ? AND date <= ? ORDER BY date",
+        (start.isoformat(), report_date.isoformat()),
+    )
+    saved = {row["date"]: dict(row) for row in await cursor.fetchall()}
+
+    labels = []
+    occupancy = []
+    adr = []
+    revpar = []
+    rooms = fb = me = ood = other = 0.0
+    day = start
+    while day <= report_date:
+        labels.append(f"{day.day:02d}")
+        row = saved.get(day.isoformat())
+        if row is None:
+            occupancy.append(None)
+            adr.append(None)
+            revpar.append(None)
+        else:
+            figures = night_figures(
+                row["rooms_available"],
+                row["rooms_occupied"],
+                row["rooms_revenue"],
+                row["fb_revenue"],
+                row["me_revenue"],
+                row["ood_revenue"],
+                row["other_revenue"],
+            )
+            occupancy.append(None if figures["occupancy"] is None else money(figures["occupancy"] * 100))
+            adr.append(None if figures["adr"] is None else money(figures["adr"]))
+            revpar.append(None if figures["revpar"] is None else money(figures["revpar"]))
+            rooms += row["rooms_revenue"]
+            fb += row["fb_revenue"]
+            me += row["me_revenue"]
+            ood += row["ood_revenue"]
+            other += row["other_revenue"]
+        day += timedelta(days=1)
+
+    selected = saved.get(report_date.isoformat())
+    stored = _loads(selected["segments_json"], []) if selected else []
+    by_code = {}
+    if isinstance(stored, list):
+        for item in stored:
+            if isinstance(item, dict) and item.get("code") in SEGMENT_CODES:
+                by_code[item["code"]] = item.get("rooms") or 0
+
+    return {
+        "date": date,
+        "range": range,
+        "labels": labels,
+        "occupancy": occupancy,
+        "adr": adr,
+        "revpar": revpar,
+        "revenue": {
+            "rooms": money(rooms),
+            "fb": money(fb),
+            "me": money(me),
+            "ood": money(ood),
+            "other": money(other),
+        },
+        "segments": [{"code": code, "rooms": by_code.get(code, 0)} for code in SEGMENT_CODES],
+    }
 
 
 @router.get("")
