@@ -84,3 +84,12 @@ async def require_admin(user: TokenData = Depends(require_auth)) -> TokenData:
     if user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return user
+
+def can_write(role: str, section: str) -> bool:
+    if role == "admin":
+        return section in ("duty", "night")
+    if role == "staff":
+        return section == "duty"
+    if role == "night":
+        return section == "night"
+    return False
