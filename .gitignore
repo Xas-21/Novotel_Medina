@@ -1,0 +1,10 @@
+# Secrets — never commit
+.env
+
+# Local host data dir (real data lives in Docker volume novotel_data)
+data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/

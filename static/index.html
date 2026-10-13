@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Novotel — Duty Manager Daily Report</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <link rel="icon" href="/assets/novotel-logo-blue.png">
+</head>
+<body>
+  <!-- Login Screen -->
+  <div id="loginScreen" class="login-screen" style="display:none;">
+    <div class="login-card">
+      <img src="/assets/novotel-logo-blue.png" class="login-logo" alt="Novotel logo">
+
+      <input type="text" id="login-username" placeholder="Username" autocomplete="username" autocapitalize="off">
+      <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
+      <button id="loginBtn" class="dmr-btn dmr-btn-primary login-btn">Sign In</button>
+      <div id="loginError" class="login-error"></div>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div class="dmr-root" id="dmrRoot" style="display:none;">
+    <div class="dmr-nav">
+      <div class="brand">
+        <img src="/assets/novotel-logo-blue.png" class="brand-logo" alt="Novotel">
+
+      </div>
+
+      <div class="sync-status">
+        <span class="sync-dot" id="syncDot"></span>
+        <span id="syncText">Connected</span>
+      </div>
+
+      <button class="dmr-navbtn active" data-view="today">Today's Report</button>
+      <button class="dmr-navbtn" data-view="archive">Archive</button>
+      <button class="dmr-navbtn" data-view="analysis">Analysis</button>
+      <button class="dmr-navbtn" data-view="users" id="usersNavBtn" style="display:none;">Users</button>
+
+      <div class="dmr-nav-foot">
+        <div id="navNameBlock">
+          <span class="nav-name" id="navName">—</span>
+          <span class="nav-title" id="navTitle"></span>
+        </div>
+        <button id="logoutBtn">Logout</button>
+      </div>
+    </div>
+
+    <div class="dmr-main" id="dmrMain"></div>
+  </div>
+
+  <!-- Hidden input for checklist item photo uploads -->
+  <input type="file" id="checklistPhotoInput" accept="image/*" capture="environment" style="display:none;">
+
+  <!-- Third-party CDN libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

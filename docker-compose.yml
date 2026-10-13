@@ -1,0 +1,32 @@
+services:
+  web:
+    build: .
+    container_name: novotel
+    restart: unless-stopped
+    environment:
+      - DATA_DIR=/data
+      - SECRET_KEY=${SECRET_KEY:?Set SECRET_KEY in .env}
+    volumes:
+      - novotel_data:/data
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.middlewares.novotel-https.redirectscheme.permanent=true"
+      - "traefik.http.middlewares.novotel-https.redirectscheme.scheme=https"
+      - "traefik.http.routers.novotel-http.entrypoints=web"
+      - "traefik.http.routers.novotel-http.middlewares=novotel-https"
+      - "traefik.http.routers.novotel-http.rule=Host(`novotel.as-web.cloud`)"
+      - "traefik.http.routers.novotel.entrypoints=websecure"
+      - "traefik.http.routers.novotel.rule=Host(`novotel.as-web.cloud`)"
+      - "traefik.http.routers.novotel.tls=true"
+      - "traefik.http.routers.novotel.tls.certresolver=letsencrypt"
+      - "traefik.http.services.novotel.loadbalancer.server.port=8000"
+
+volumes:
+  novotel_data:
+
+networks:
+  proxy:
+    external: true
