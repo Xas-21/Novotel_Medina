@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from app.database import init_db, UPLOADS_DIR
-from app.routes import auth, reports, notes, upload
+from app.routes import auth, reports, notes, upload, night
 from app.ws import ws_manager
 
 logging.basicConfig(
@@ -42,6 +42,7 @@ app.include_router(auth.router)
 app.include_router(reports.router)
 app.include_router(notes.router)
 app.include_router(upload.router)
+app.include_router(night.router)
 
 # Serve uploaded photos securely
 os.makedirs(UPLOADS_DIR, exist_ok=True)
