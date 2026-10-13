@@ -22,7 +22,14 @@
 
   <!-- Main App -->
   <div class="dmr-root" id="dmrRoot" style="display:none;">
-    <div class="dmr-nav">
+    <header class="dmr-topbar">
+      <span class="topbar-mark"><img src="/assets/novotel-logo-blue.png" class="topbar-logo" alt="Novotel"></span>
+      <span id="mobileCrumb">Today's Report</span>
+      <button type="button" id="menuBtn" aria-expanded="false" aria-controls="dmrNav">Menu</button>
+    </header>
+    <button type="button" class="dmr-backdrop" id="navBackdrop" hidden aria-label="Close menu"></button>
+    <nav class="dmr-nav" id="dmrNav" aria-label="Sections">
+      <button type="button" class="nav-close" id="navClose">Close</button>
       <div class="brand">
         <img src="/assets/novotel-logo-blue.png" class="brand-logo" alt="Novotel">
 
@@ -52,7 +59,7 @@
         </div>
         <button id="logoutBtn">Logout</button>
       </div>
-    </div>
+    </nav>
 
     <div class="dmr-main" id="dmrMain"></div>
   </div>

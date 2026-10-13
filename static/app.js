@@ -304,9 +304,8 @@
         try {
           const msg = JSON.parse(e.data);
           if (msg.date === state.selectedDate && state.view === 'today') {
-            // REPORT_UPDATED is our own save bouncing back — data is already in local state.
-            // Re-rendering here destroys the input the user is actively typing in.
-            if (msg.event === 'REPORT_UPDATED') return;
+            // Report saves bounce back on the socket. Re-rendering destroys the input being typed in.
+            if (msg.event === 'REPORT_UPDATED' || msg.event === 'NIGHT_REPORT_UPDATED') return;
             const fresh = await loadReport(state.selectedDate);
             if (fresh) {
               state.report = fresh;
@@ -349,7 +348,55 @@
   }
 
   // ---------- Auth / Login ----------
+  function pageLabel() {
+    if (state.view === 'users') return 'Users';
+    if (state.section === 'full') return 'Full Report';
+    const section = state.section === 'night' ? 'Night' : 'Duty';
+    const view = { today: "Today's Report", archive: 'Archive', analysis: 'Analysis' }[state.view] || '';
+    return view ? section + ' · ' + view : section;
+  }
+
+  function setNavOpen(open) {
+    const root = document.getElementById('dmrRoot');
+    const nav = document.getElementById('dmrNav');
+    const btn = document.getElementById('menuBtn');
+    const backdrop = document.getElementById('navBackdrop');
+    const narrow = window.matchMedia('(max-width: 900px)').matches;
+    if (!narrow) open = false;
+    if (root) root.classList.toggle('nav-open', open);
+    document.body.classList.toggle('nav-open', open);
+    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (backdrop) backdrop.hidden = !open;
+    if (nav) nav.inert = narrow && !open;
+    if (open) {
+      const closeBtn = document.getElementById('navClose');
+      if (closeBtn) closeBtn.focus();
+    } else if (btn && nav && nav.contains(document.activeElement)) {
+      btn.focus();
+    }
+  }
+
+  function bindNavDrawer() {
+    const menuBtn = document.getElementById('menuBtn');
+    const navClose = document.getElementById('navClose');
+    const backdrop = document.getElementById('navBackdrop');
+    if (menuBtn) menuBtn.onclick = () => {
+      const root = document.getElementById('dmrRoot');
+      setNavOpen(!(root && root.classList.contains('nav-open')));
+    };
+    if (navClose) navClose.onclick = () => setNavOpen(false);
+    if (backdrop) backdrop.onclick = () => setNavOpen(false);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') setNavOpen(false);
+    });
+    window.addEventListener('resize', () => {
+      if (!window.matchMedia('(max-width: 900px)').matches) setNavOpen(false);
+    });
+    setNavOpen(false);
+  }
+
   async function init() {
+    bindNavDrawer();
     if (state.token) {
       const me = await apiFetch('/api/auth/me');
       if (me && me.id) {
@@ -423,7 +470,7 @@
     render();
     state.report = await loadReport(state.selectedDate);
     state.loading = false;
-    render();
+    if (state.section === 'duty') render();
   }
 
   async function switchDate(d) {
@@ -432,7 +479,8 @@
     render();
     state.report = await loadReport(d);
     state.loading = false;
-    render();
+    // Night paints from /api/night. A second render would wipe that form.
+    if (state.section === 'duty') render();
   }
 
   // ---------- Render Main View ----------
@@ -441,6 +489,8 @@
     const navTitle = document.getElementById('navTitle');
     if (navName) navName.textContent = fullName(state.user);
     if (navTitle) navTitle.textContent = state.user ? (state.user.title || '') : '';
+    const crumb = document.getElementById('mobileCrumb');
+    if (crumb) crumb.textContent = pageLabel();
 
     const usersBtn = document.getElementById('usersNavBtn');
     if (usersBtn) usersBtn.style.display = (state.user && state.user.role === 'admin') ? 'flex' : 'none';
@@ -1426,6 +1476,7 @@
       b.onclick = () => {
         if (b.dataset.section) state.section = b.dataset.section;
         state.view = b.dataset.view;
+        setNavOpen(false);
         render();
       };
     });
@@ -1637,6 +1688,10 @@
       showToast('Note logged ✓');
     }
   }
+
+  window.canWrite = canWrite;
+  window.apiFetch = apiFetch;
+  window.state = state;
 
   init();
 })();
