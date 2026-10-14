@@ -1,0 +1,14 @@
+# Local only. Production stays on docker-compose.yml behind Traefik.
+# Uses the git snapshot copied into ./data (gitignored), not the live volume.
+services:
+  web:
+    build: .
+    container_name: novotel-local
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATA_DIR=/data
+      - SECRET_KEY=local-dev-only-not-for-production
+    volumes:
+      - ./data:/data

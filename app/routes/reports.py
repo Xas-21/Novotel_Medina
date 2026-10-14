@@ -306,6 +306,7 @@ async def delete_report(
 async def get_analysis(
     date: str,
     range: str = Query("week", pattern="^(week|month)$"),
+    start: str | None = None,
     db: aiosqlite.Connection = Depends(get_db),
     user: TokenData = Depends(require_auth)
 ):
@@ -314,8 +315,16 @@ async def get_analysis(
     except ValueError:
         ref_date = datetime.utcnow()
     
-    days_back = 7 if range == "week" else 30
-    start_date = (ref_date - timedelta(days=days_back - 1)).strftime("%Y-%m-%d")
+    if range == "week":
+        start_date = (ref_date - timedelta(days=6)).strftime("%Y-%m-%d")
+    else:
+        start_date = ref_date.replace(day=1).strftime("%Y-%m-%d")
+    if start:
+        try:
+            datetime.strptime(start, "%Y-%m-%d")
+            start_date = start
+        except ValueError:
+            pass
     end_date = ref_date.strftime("%Y-%m-%d")
     
     cursor = await db.execute(

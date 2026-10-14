@@ -261,14 +261,20 @@ async def get_night_index(
 async def get_night_analysis(
     date: str,
     range: str = Query("week", pattern="^(week|month)$"),
+    start: str | None = None,
     _: TokenData = Depends(require_auth),
     db: aiosqlite.Connection = Depends(get_db),
 ):
     report_date = _parse_date(date)
-    start = report_date - timedelta(days=6) if range == "week" else report_date.replace(day=1)
+    if start:
+        start_day = _parse_date(start)
+    elif range == "week":
+        start_day = report_date - timedelta(days=6)
+    else:
+        start_day = report_date.replace(day=1)
     cursor = await db.execute(
         "SELECT * FROM night_reports WHERE date >= ? AND date <= ? ORDER BY date",
-        (start.isoformat(), report_date.isoformat()),
+        (start_day.isoformat(), report_date.isoformat()),
     )
     saved = {row["date"]: dict(row) for row in await cursor.fetchall()}
 
@@ -277,7 +283,7 @@ async def get_night_analysis(
     adr = []
     revpar = []
     rooms = fb = me = ood = other = 0.0
-    day = start
+    day = start_day
     while day <= report_date:
         labels.append(f"{day.day:02d}")
         row = saved.get(day.isoformat())

@@ -858,8 +858,13 @@
     const end = new Date(endIso + 'T00:00:00');
     while (cursor <= end) {
       const iso = cursor.toLocaleDateString('en-CA', {timeZone:'Asia/Riyadh'});
-      labels.push(iso.slice(8));
-      values.push(byDate.has(iso) ? byDate.get(iso) : null);
+      const spans = startIso.slice(0, 7) !== endIso.slice(0, 7);
+      const label = spans
+        ? new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+        : iso.slice(8);
+      labels.push(label);
+      const parsed = byDate.has(iso) ? byDate.get(iso) : null;
+      values.push(parsed == null ? 0 : parsed);
       cursor.setDate(cursor.getDate() + 1);
     }
     return {labels, values};
@@ -871,37 +876,135 @@
     return iso.slice(0, 8) + String(last).padStart(2, '0');
   }
 
-  function analysisWindow(){
-    const end = state.selectedDate;
-    if (state.analysisRange === 'week') {
-      const cursor = new Date(end + 'T00:00:00');
-      cursor.setDate(cursor.getDate() - 6);
-      return {start: cursor.toLocaleDateString('en-CA', {timeZone:'Asia/Riyadh'}), end};
+  function shiftIso(iso, days){
+    const cursor = new Date(iso + 'T00:00:00');
+    cursor.setDate(cursor.getDate() + days);
+    return cursor.toLocaleDateString('en-CA', {timeZone:'Asia/Riyadh'});
+  }
+
+  function applyPeriod(mode){
+    const today = todayStr();
+    let to = state.periodTo || state.selectedDate || today;
+    if (to > today) to = today;
+    state.periodMode = mode;
+    if (mode === 'day') {
+      state.periodFrom = to;
+      state.periodTo = to;
+    } else if (mode === 'week') {
+      state.periodTo = to;
+      state.periodFrom = shiftIso(to, -6);
+    } else if (mode === 'month') {
+      const monthKey = to.slice(0, 7);
+      state.periodFrom = monthKey + '-01';
+      state.periodTo = monthKey < today.slice(0, 7) ? monthLastDay(state.periodFrom) : today;
+    } else if (mode === 'ytd') {
+      const year = to.slice(0, 4);
+      state.periodFrom = year + '-01-01';
+      state.periodTo = year === today.slice(0, 4) ? today : year + '-12-31';
     }
-    return {start: end.slice(0, 8) + '01', end};
+  }
+
+  function ensurePeriod(){
+    const today = todayStr();
+    if (!state.periodTo) state.periodTo = state.selectedDate || today;
+    if (!state.periodMode || !state.periodFrom) applyPeriod(state.periodMode || 'week');
+  }
+
+  function periodBar(){
+    ensurePeriod();
+    const mode = state.periodMode;
+    const button = (id, label) => `<button type="button" class="dmr-btn ${mode === id ? 'dmr-btn-primary' : 'dmr-btn-ghost'}" data-period="${id}">${label}</button>`;
+    return `
+      <div class="dmr-toolbar">
+        ${button('day', 'Day')}
+        ${button('week', 'Week')}
+        ${button('month', 'Month')}
+        ${button('ytd', 'YTD')}
+      </div>
+      <div class="dmr-row" style="margin:12px 0;">
+        <div class="dmr-field"><label>From</label><input type="date" id="periodFrom" value="${state.periodFrom}"></div>
+        <div class="dmr-field"><label>To</label><input type="date" id="periodTo" value="${state.periodTo}"></div>
+      </div>`;
+  }
+
+  function periodQuery(){
+    ensurePeriod();
+    const range = state.periodMode === 'month' ? 'month' : 'week';
+    return 'date=' + encodeURIComponent(state.periodTo) + '&range=' + range + '&start=' + encodeURIComponent(state.periodFrom);
+  }
+
+  function chartFill(canvas, rgb){
+    const box = canvas.parentElement;
+    const h = (box && box.clientHeight) || canvas.height || 220;
+    const fade = canvas.getContext('2d').createLinearGradient(0, 0, 0, h);
+    fade.addColorStop(0, 'rgba(' + rgb + ',0.38)');
+    fade.addColorStop(0.72, 'rgba(' + rgb + ',0.08)');
+    fade.addColorStop(1, 'rgba(' + rgb + ',0)');
+    return fade;
+  }
+
+  function chartFrame(){
+    const tick = { color: '#5B6673', font: { family: 'Inter', size: 11 } };
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1C2B39',
+          titleFont: { family: 'Inter', size: 12 },
+          bodyFont: { family: 'Inter', size: 12 },
+          padding: 10,
+          cornerRadius: 8,
+          displayColors: false
+        }
+      },
+      scales: {
+        x: { grid: { display: false }, border: { display: false }, ticks: Object.assign({ maxTicksLimit: 14, autoSkip: true }, tick) },
+        y: {
+          beginAtZero: true,
+          border: { display: false },
+          grid: { color: '#E6E1D6', drawTicks: false, borderDash: [4, 6] },
+          ticks: tick
+        }
+      }
+    };
+  }
+
+  function areaSeries(canvas, label, data, hex, rgb){
+    return {
+      label: label,
+      data: data,
+      borderColor: hex,
+      backgroundColor: chartFill(canvas, rgb),
+      fill: true,
+      spanGaps: false,
+      tension: 0.45,
+      borderWidth: 2.5,
+      pointRadius: 3.5,
+      pointHoverRadius: 6,
+      pointBackgroundColor: hex,
+      pointBorderColor: '#ffffff',
+      pointBorderWidth: 2
+    };
+  }
+
+  function mountChart(canvas, config){
+    if (canvas._chart) canvas._chart.destroy();
+    canvas._chart = new Chart(canvas, config);
+    return canvas._chart;
   }
 
   function drawOccupancyChart(canvasId, series){
     const canvas = document.getElementById(canvasId);
     if (!canvas || !window.Chart) return;
-    if (canvas._chart) canvas._chart.destroy();
-    canvas._chart = new Chart(canvas, {
+    const options = chartFrame();
+    options.scales.y.suggestedMax = 100;
+    mountChart(canvas, {
       type: 'line',
-      data: {
-        labels: series.labels,
-        datasets: [{
-          label: 'Occupancy %',
-          data: series.values,
-          borderColor: '#1e22aa',
-          backgroundColor: 'rgba(30,34,170,0.12)',
-          spanGaps: false,
-          tension: 0.2
-        }]
-      },
-      options: {
-        plugins: {legend: {display: false}},
-        scales: {y: {beginAtZero: true, suggestedMax: 100}}
-      }
+      data: { labels: series.labels, datasets: [areaSeries(canvas, 'Occupancy %', series.values, '#1e22aa', '30,34,170')] },
+      options: options
     });
   }
 
@@ -946,7 +1049,7 @@
       return `
       <details class="archive-month dmr-card" ${open ? 'open' : ''}>
         <summary>${escapeHtml(group.label)} (${group.entries.length})</summary>
-        <canvas id="occ-${group.key}" height="120"></canvas>
+        <div class="chart-box"><canvas id="occ-${group.key}"></canvas></div>
         ${group.entries.map(e => `
           <div class="dmr-archive-row">
             <div>
@@ -1001,16 +1104,13 @@
   function renderAnalysis() {
     return `
     <div class="dmr-headline"><h1>Operations & Trend Analysis</h1></div>
-    <div class="dmr-sub">Performance metrics, failure frequency, and guest feedback insights</div>
-    <div class="dmr-toolbar">
-      <button class="dmr-btn ${state.analysisRange==='week'?'dmr-btn-primary':'dmr-btn-ghost'}" data-range="week">Weekly View</button>
-      <button class="dmr-btn ${state.analysisRange==='month'?'dmr-btn-primary':'dmr-btn-ghost'}" data-range="month">Monthly View</button>
-    </div>
+    <div class="dmr-sub">Pick a day, a week, a month, the year to date, or any from and to dates</div>
+    ${periodBar()}
     <div id="analysisBody"><div class="dmr-empty">Computing analysis…</div></div>`;
   }
 
   async function loadAnalysis() {
-    const data = await apiFetch(`/api/reports/analysis?date=${state.selectedDate}&range=${state.analysisRange}`);
+    const data = await apiFetch('/api/reports/analysis?' + periodQuery());
     const index = await apiFetch('/api/reports/index');
     state.analysisData = data;
     state.dutyIndex = index || [];
@@ -1031,12 +1131,12 @@
 
       <div class="dmr-card dmr-chart-card">
         <h3>Occupancy %</h3>
-        <canvas id="occupancyChart" height="130"></canvas>
+        <div class="chart-box"><canvas id="occupancyChart"></canvas></div>
       </div>
 
       <div class="dmr-card dmr-chart-card">
         <h3>Inspection Failures by Area</h3>
-        <canvas id="sectionChart" height="130"></canvas>
+        <div class="chart-box"><canvas id="sectionChart"></canvas></div>
       </div>
 
       <div class="dmr-card dmr-chart-card">
@@ -1092,8 +1192,7 @@
       `;
 
     drawChart();
-    const range = analysisWindow();
-    drawOccupancyChart('occupancyChart', occupancySeries(state.dutyIndex || [], range.start, range.end));
+    drawOccupancyChart('occupancyChart', occupancySeries(state.dutyIndex || [], state.periodFrom, state.periodTo));
     const expBtn = document.getElementById('exportAnalysisPdf');
     if (expBtn) expBtn.onclick = exportAnalysisPdf;
   }
@@ -1103,19 +1202,22 @@
     if (!canvas || !window.Chart || !state.analysisData) return;
     if (canvas._chart) canvas._chart.destroy();
     const entries = state.analysisData.topSections.length ? state.analysisData.topSections : [['No failures', 0]];
-    canvas._chart = new Chart(canvas, {
+    const options = chartFrame();
+    options.scales.y.ticks.precision = 0;
+    options.scales.x.ticks.maxRotation = 0;
+    mountChart(canvas, {
       type: 'bar',
       data: {
         labels: entries.map(e => e[0]),
-        datasets: [{ data: entries.map(e => e[1]), backgroundColor: '#A8814F', borderRadius: 4 }]
+        datasets: [{
+          data: entries.map(e => e[1]),
+          backgroundColor: '#7c6bf2',
+          borderRadius: 8,
+          borderSkipped: false,
+          maxBarThickness: 36
+        }]
       },
-      options: {
-        plugins: { legend: { display: false } },
-        scales: {
-          y: { beginAtZero: true, ticks: { precision: 0 } },
-          x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 0 } }
-        }
-      }
+      options: options
     });
   }
 
@@ -1231,6 +1333,22 @@
   }
 
   // ---------- PDF Generation ----------
+  function chartImage(draw){
+    const canvas = document.createElement('canvas');
+    canvas.width = 900;
+    canvas.height = 280;
+    const previous = Chart.defaults.devicePixelRatio;
+    Chart.defaults.devicePixelRatio = 1;
+    let chart = null;
+    try {
+      chart = draw(canvas);
+      return canvas.toDataURL('image/jpeg', 0.82);
+    } finally {
+      if (chart) chart.destroy();
+      Chart.defaults.devicePixelRatio = previous;
+    }
+  }
+
   async function occupancyChartImage(startIso, endIso){
     if (!window.Chart) return null;
     const index = await apiFetch('/api/reports/index');
@@ -1239,26 +1357,23 @@
     const canvas = document.createElement('canvas');
     canvas.width = 900;
     canvas.height = 280;
+    const options = chartFrame();
+    options.animation = false;
+    options.responsive = false;
+    options.scales.y.suggestedMax = 100;
+    const previous = Chart.defaults.devicePixelRatio;
+    Chart.defaults.devicePixelRatio = 1;
     const chart = new Chart(canvas, {
       type: 'line',
       data: {
         labels: series.labels,
-        datasets: [{
-          data: series.values,
-          borderColor: '#1e22aa',
-          backgroundColor: 'rgba(30,34,170,0.12)',
-          spanGaps: false,
-          tension: 0.2
-        }]
+        datasets: [areaSeries(canvas, 'Occupancy %', series.values, '#1e22aa', '30,34,170')]
       },
-      options: {
-        animation: false,
-        plugins: {legend: {display: false}},
-        scales: {y: {beginAtZero: true, suggestedMax: 100}}
-      }
+      options: options
     });
-    const url = canvas.toDataURL('image/png');
+    const url = canvas.toDataURL('image/jpeg', 0.82);
     chart.destroy();
+    Chart.defaults.devicePixelRatio = previous;
     return url;
   }
 
@@ -1534,9 +1649,39 @@
     });
     y = gy + ch + 16;
 
-    // Chart
+    // Charts
+    try {
+      const occImg = await occupancyChartImage(d.startDate, d.endDate);
+      if (occImg) {
+        if (y + 180 > 780) { doc.addPage(); y = 45; }
+        y = pdfSectionHeading(doc, W, y, 'Occupancy %');
+        doc.addImage(occImg, 'JPEG', 40, y, W - 80, 150);
+        y += 158;
+      }
+    } catch (e) {}
     const canvas = document.getElementById('sectionChart');
-    if (canvas) {
+    if (d.topSections) {
+      try {
+        const failImg = chartImage(canvasEl => {
+          const options = chartFrame();
+          options.animation = false;
+          options.responsive = false;
+          const entries = d.topSections.length ? d.topSections : [['No failures', 0]];
+          return new Chart(canvasEl, {
+            type: 'bar',
+            data: {
+              labels: entries.map(e => e[0]),
+              datasets: [{ data: entries.map(e => e[1]), backgroundColor: '#7c6bf2', borderRadius: 8, maxBarThickness: 36 }]
+            },
+            options: options
+          });
+        });
+        if (y + 170 > 780) { doc.addPage(); y = 45; }
+        y = pdfSectionHeading(doc, W, y, 'Inspection Failures by Area');
+        doc.addImage(failImg, 'JPEG', 40, y, W - 80, 150);
+        y += 158;
+      } catch (e) {}
+    } else if (canvas) {
       try {
         const img = canvas.toDataURL('image/png');
         if (y + 170 > 780) { doc.addPage(); y = 45; }
@@ -1794,9 +1939,23 @@
       img.onclick = () => { state.modalImg = img.src; renderOverlays(); };
     });
 
-    document.querySelectorAll('[data-range]').forEach(btn => {
-      btn.onclick = () => { state.analysisRange = btn.dataset.range; render(); };
+    document.querySelectorAll('[data-period]').forEach(btn => {
+      btn.onclick = () => { applyPeriod(btn.dataset.period); render(); };
     });
+    const periodFrom = document.getElementById('periodFrom');
+    const periodTo = document.getElementById('periodTo');
+    if (periodFrom) periodFrom.onchange = () => {
+      state.periodMode = 'custom';
+      state.periodFrom = periodFrom.value;
+      if (state.periodTo && state.periodFrom > state.periodTo) state.periodTo = state.periodFrom;
+      render();
+    };
+    if (periodTo) periodTo.onchange = () => {
+      state.periodMode = 'custom';
+      state.periodTo = periodTo.value;
+      if (state.periodFrom && state.periodFrom > state.periodTo) state.periodFrom = state.periodTo;
+      render();
+    };
 
     const createUserBtn = document.getElementById('createUserBtn');
     if (createUserBtn) createUserBtn.onclick = createUser;
@@ -1863,6 +2022,10 @@
   window.groupByMonth = groupByMonth;
   window.exportDutyPdf = exportPdf;
   window.NovotelPdf = { pdfHeader, pdfTable, addPdfFooter, getLogoDataUrl };
+  window.occupancySeries = occupancySeries;
+  window.periodBar = periodBar;
+  window.periodQuery = periodQuery;
+  window.NovotelCharts = { chartFrame, areaSeries, chartFill, mountChart, chartImage };
 
   init();
 })();
