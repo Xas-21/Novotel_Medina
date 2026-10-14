@@ -132,7 +132,7 @@
     });
   }
 
-  function pdfHeader(doc, W, logoUrl) {
+  function pdfHeader(doc, W, logoUrl, title) {
     // White header with the Novotel logo (blue on white)
     if (logoUrl) {
       const logoW = 180;
@@ -146,7 +146,7 @@
     doc.rect(0, 90, W, 2, 'F');
     doc.setTextColor(...NOVOTEL.inkSoft);
     doc.setFont('helvetica','normal'); doc.setFontSize(8);
-    doc.text('DUTY MANAGER DAILY REPORT', 40, 106);
+    doc.text(title || 'DUTY MANAGER DAILY REPORT', 40, 106);
     return 122;
   }
 
@@ -208,16 +208,16 @@
     return y;
   }
 
-  function addPdfFooter(doc, W) {
+  function addPdfFooter(doc, W, label, fromPage) {
     const total = doc.internal.getNumberOfPages();
-    for (let i = 1; i <= total; i++) {
+    for (let i = fromPage || 1; i <= total; i++) {
       doc.setPage(i);
       const H = doc.internal.pageSize.getHeight();
       doc.setDrawColor(...NOVOTEL.line);
       doc.line(40, H - 30, W - 40, H - 30);
       doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
       doc.setTextColor(...NOVOTEL.inkSoft);
-      doc.text('Novotel — Duty Manager Report', 40, H - 18);
+      doc.text(label || 'Novotel — Duty Manager Report', 40, H - 18);
       doc.text(`Page ${i} of ${total}`, W - 40, H - 18, {align:'right'});
     }
   }
@@ -303,7 +303,7 @@
       ws.onmessage = async (e) => {
         try {
           const msg = JSON.parse(e.data);
-          if (msg.date === state.selectedDate && state.view === 'today') {
+          if (msg.date === state.selectedDate && state.section === 'duty' && state.view === 'today') {
             // Report saves bounce back on the socket. Re-rendering destroys the input being typed in.
             if (msg.event === 'REPORT_UPDATED' || msg.event === 'NIGHT_REPORT_UPDATED') return;
             const fresh = await loadReport(state.selectedDate);
@@ -828,40 +828,160 @@
   }
 
   // ---------- Archive View ----------
+  function groupByMonth(entries){
+    const groups = new Map();
+    entries.forEach(entry => {
+      const [year, month] = entry.date.split('-');
+      const key = year + '-' + month;
+      if (!groups.has(key)) {
+        const label = new Date(entry.date + 'T00:00:00').toLocaleDateString('en-US', {month:'long', year:'numeric', timeZone:'Asia/Riyadh'});
+        groups.set(key, {key, label, entries: []});
+      }
+      groups.get(key).entries.push(entry);
+    });
+    return Array.from(groups.values());
+  }
+
+  function parseOccupancy(text){
+    if (text == null) return null;
+    const cleaned = String(text).replace('%', '').trim();
+    if (cleaned === '') return null;
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function occupancySeries(rows, startIso, endIso){
+    const byDate = new Map(rows.map(r => [r.date, parseOccupancy(r.occupancy)]));
+    const labels = [];
+    const values = [];
+    let cursor = new Date(startIso + 'T00:00:00');
+    const end = new Date(endIso + 'T00:00:00');
+    while (cursor <= end) {
+      const iso = cursor.toLocaleDateString('en-CA', {timeZone:'Asia/Riyadh'});
+      labels.push(iso.slice(8));
+      values.push(byDate.has(iso) ? byDate.get(iso) : null);
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    return {labels, values};
+  }
+
+  function monthLastDay(iso){
+    const [year, month] = iso.split('-').map(Number);
+    const last = new Date(year, month, 0).getDate();
+    return iso.slice(0, 8) + String(last).padStart(2, '0');
+  }
+
+  function analysisWindow(){
+    const end = state.selectedDate;
+    if (state.analysisRange === 'week') {
+      const cursor = new Date(end + 'T00:00:00');
+      cursor.setDate(cursor.getDate() - 6);
+      return {start: cursor.toLocaleDateString('en-CA', {timeZone:'Asia/Riyadh'}), end};
+    }
+    return {start: end.slice(0, 8) + '01', end};
+  }
+
+  function drawOccupancyChart(canvasId, series){
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || !window.Chart) return;
+    if (canvas._chart) canvas._chart.destroy();
+    canvas._chart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: series.labels,
+        datasets: [{
+          label: 'Occupancy %',
+          data: series.values,
+          borderColor: '#1e22aa',
+          backgroundColor: 'rgba(30,34,170,0.12)',
+          spanGaps: false,
+          tension: 0.2
+        }]
+      },
+      options: {
+        plugins: {legend: {display: false}},
+        scales: {y: {beginAtZero: true, suggestedMax: 100}}
+      }
+    });
+  }
+
   function renderArchive() {
     return `
     <div class="dmr-headline"><h1>Archive</h1></div>
     <div class="dmr-sub">Complete historical archive of Duty Manager daily reports</div>
-    <div id="archiveList" class="dmr-card"><div class="dmr-empty">Loading archive…</div></div>`;
+    <input type="date" id="archiveSearch" class="dmr-btn dmr-btn-ghost" style="padding:7px 12px;margin-bottom:12px;">
+    <div id="archiveList"><div class="dmr-card"><div class="dmr-empty">Loading archive…</div></div></div>`;
   }
+
+  let dutyArchive = [];
 
   async function loadArchiveList() {
     const entries = await apiFetch('/api/reports/index');
-    const isAdmin = state.user && state.user.role === 'admin';
+    dutyArchive = entries || [];
+    const search = document.getElementById('archiveSearch');
+    if (search && !search._bound) {
+      search._bound = true;
+      search.onchange = () => paintDutyArchive();
+    }
+    paintDutyArchive();
+  }
+
+  function paintDutyArchive() {
     const el = document.getElementById('archiveList');
     if (!el) return;
-    if (!entries || entries.length === 0) {
-      el.outerHTML = '<div class="dmr-empty"><h3>No archived reports yet</h3></div>';
+    const search = document.getElementById('archiveSearch');
+    const query = search && search.value;
+    let rows = dutyArchive;
+    if (query) rows = dutyArchive.filter(entry => entry.date === query);
+    if (rows.length === 0) {
+      el.innerHTML = '<div class="dmr-empty"><h3>No archived reports yet</h3></div>';
       return;
     }
-    el.innerHTML = entries.map(e => `
-      <div class="dmr-archive-row">
-        <div>
-          <div class="dmr-archive-date">${fmtDate(e.date)}</div>
-          <span class="dmr-badge ${e.status==='submitted'?'dmr-badge-submitted':'dmr-badge-draft'}">
-            ${e.status==='submitted'?'Submitted':'Draft'}
-          </span>
-          ${e.occupancy ? `<span style="font-size:12px;color:var(--ink-soft);margin-left:8px;">Occ: ${escapeHtml(e.occupancy)}%</span>` : ''}
-          ${e.notesCount ? `<span style="font-size:12px;color:var(--ink-soft);margin-left:8px;">${e.notesCount} note${e.notesCount===1?'':'s'}</span>` : ''}
-          ${e.status==='submitted' && e.submittedBy ? `<div class="dmr-prepared-by">Prepared by: ${escapeHtml(e.submittedBy)}</div>` : ''}
-        </div>
-        <div style="display:flex;gap:8px;">
-          <button class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-view-date="${e.date}">Open</button>
-          ${(isAdmin || e.status !== 'submitted') ? `<button class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-edit-date="${e.date}">Edit</button>` : ''}
-          <button class="dmr-btn dmr-btn-primary dmr-btn-sm" data-export="${e.date}">Export PDF</button>
-          ${isAdmin ? `<button class="dmr-btn dmr-btn-sm" data-delete-date="${e.date}" style="background:var(--danger);color:#fff;">Delete</button>` : ''}
-        </div>
-      </div>`).join('');
+    const isAdmin = state.user && state.user.role === 'admin';
+    const canEditDuty = canWrite(state.user && state.user.role, 'duty');
+    const openKey = query ? query.slice(0, 7) : (state.selectedDate || todayStr()).slice(0, 7);
+    const todayKey = todayStr().slice(0, 7);
+    el.innerHTML = groupByMonth(rows).map(group => {
+      const open = group.key === openKey;
+      return `
+      <details class="archive-month dmr-card" ${open ? 'open' : ''}>
+        <summary>${escapeHtml(group.label)} (${group.entries.length})</summary>
+        <canvas id="occ-${group.key}" height="120"></canvas>
+        ${group.entries.map(e => `
+          <div class="dmr-archive-row">
+            <div>
+              <div class="dmr-archive-date">${fmtDate(e.date)}</div>
+              <span class="dmr-badge ${e.status==='submitted'?'dmr-badge-submitted':'dmr-badge-draft'}">
+                ${e.status==='submitted'?'Submitted':'Draft'}
+              </span>
+              ${e.occupancy ? `<span style="font-size:12px;color:var(--ink-soft);margin-left:8px;">Occ: ${escapeHtml(String(e.occupancy).replace('%','').trim())}%</span>` : ''}
+              ${e.notesCount ? `<span style="font-size:12px;color:var(--ink-soft);margin-left:8px;">${e.notesCount} note${e.notesCount===1?'':'s'}</span>` : ''}
+              ${e.status==='submitted' && e.submittedBy ? `<div class="dmr-prepared-by">Prepared by: ${escapeHtml(e.submittedBy)}</div>` : ''}
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-view-date="${e.date}">Open</button>
+              ${(canEditDuty && (isAdmin || e.status !== 'submitted')) ? `<button class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-edit-date="${e.date}">Edit</button>` : ''}
+              <button class="dmr-btn dmr-btn-primary dmr-btn-sm" data-export="${e.date}">Export PDF</button>
+              ${(canEditDuty && isAdmin) ? `<button class="dmr-btn dmr-btn-sm" data-delete-date="${e.date}" style="background:var(--danger);color:#fff;">Delete</button>` : ''}
+            </div>
+          </div>`).join('')}
+      </details>`;
+    }).join('');
+
+    groupByMonth(rows).forEach(group => {
+      const end = group.key === todayKey ? todayStr() : monthLastDay(group.key + '-01');
+      drawOccupancyChart('occ-' + group.key, occupancySeries(dutyArchive, group.key + '-01', end));
+    });
+    el.querySelectorAll('details.archive-month').forEach(details => {
+      details.ontoggle = () => {
+        if (!details.open) return;
+        const canvas = details.querySelector('canvas');
+        if (!canvas) return;
+        const key = canvas.id.replace('occ-', '');
+        const end = key === todayKey ? todayStr() : monthLastDay(key + '-01');
+        drawOccupancyChart(canvas.id, occupancySeries(dutyArchive, key + '-01', end));
+      };
+    });
 
     el.querySelectorAll('[data-view-date]').forEach(btn => {
       btn.onclick = () => { state.view = 'today'; switchDate(btn.dataset.viewDate); };
@@ -872,11 +992,9 @@
     el.querySelectorAll('[data-edit-date]').forEach(btn => {
       btn.onclick = () => editReportFromArchive(btn.dataset.editDate);
     });
-    if (isAdmin) {
-      el.querySelectorAll('[data-delete-date]').forEach(btn => {
-        btn.onclick = () => { state.confirmDeleteReport = btn.dataset.deleteDate; renderOverlays(); };
-      });
-    }
+    el.querySelectorAll('[data-delete-date]').forEach(btn => {
+      btn.onclick = () => { state.confirmDeleteReport = btn.dataset.deleteDate; renderOverlays(); };
+    });
   }
 
   // ---------- Analysis View ----------
@@ -893,7 +1011,9 @@
 
   async function loadAnalysis() {
     const data = await apiFetch(`/api/reports/analysis?date=${state.selectedDate}&range=${state.analysisRange}`);
+    const index = await apiFetch('/api/reports/index');
     state.analysisData = data;
+    state.dutyIndex = index || [];
     const body = document.getElementById('analysisBody');
     if (!body || !data) return;
 
@@ -907,6 +1027,11 @@
         <div class="dmr-card dmr-stat"><div class="num">${data.courtesyNeg}</div><div class="lbl">Negative Courtesy Calls</div></div>
         <div class="dmr-card dmr-stat"><div class="num">${data.avgGss}</div><div class="lbl">Avg. TrustYou GSS</div></div>
         <div class="dmr-card dmr-stat"><div class="num">${data.reviewsSum || '—'}</div><div class="lbl">Total Reviews Analyzed</div></div>
+      </div>
+
+      <div class="dmr-card dmr-chart-card">
+        <h3>Occupancy %</h3>
+        <canvas id="occupancyChart" height="130"></canvas>
       </div>
 
       <div class="dmr-card dmr-chart-card">
@@ -967,6 +1092,8 @@
       `;
 
     drawChart();
+    const range = analysisWindow();
+    drawOccupancyChart('occupancyChart', occupancySeries(state.dutyIndex || [], range.start, range.end));
     const expBtn = document.getElementById('exportAnalysisPdf');
     if (expBtn) expBtn.onclick = exportAnalysisPdf;
   }
@@ -1104,11 +1231,42 @@
   }
 
   // ---------- PDF Generation ----------
-  async function exportPdf(date) {
+  async function occupancyChartImage(startIso, endIso){
+    if (!window.Chart) return null;
+    const index = await apiFetch('/api/reports/index');
+    if (!index) return null;
+    const series = occupancySeries(index, startIso, endIso);
+    const canvas = document.createElement('canvas');
+    canvas.width = 900;
+    canvas.height = 280;
+    const chart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: series.labels,
+        datasets: [{
+          data: series.values,
+          borderColor: '#1e22aa',
+          backgroundColor: 'rgba(30,34,170,0.12)',
+          spanGaps: false,
+          tension: 0.2
+        }]
+      },
+      options: {
+        animation: false,
+        plugins: {legend: {display: false}},
+        scales: {y: {beginAtZero: true, suggestedMax: 100}}
+      }
+    });
+    const url = canvas.toDataURL('image/png');
+    chart.destroy();
+    return url;
+  }
+
+  async function exportPdf(date, sharedDoc) {
     if (!window.jspdf) { showToast('PDF generator loading, please try in a moment'); return; }
     const r = await loadReport(date);
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const doc = sharedDoc || new jsPDF({ unit: 'pt', format: 'a4' });
     const W = doc.internal.pageSize.getWidth();
     const logoUrl = await getLogoDataUrl();
     let y = pdfHeader(doc, W, logoUrl);
@@ -1139,6 +1297,14 @@
     y += 14;
     doc.text(`ALL Loyalty Members: ${r.allMembers||0}`, 40, y);
     y += 16;
+    try {
+      const chartUrl = await occupancyChartImage(date.slice(0, 8) + '01', date);
+      if (chartUrl) {
+        if (y + 160 > 780) { doc.addPage(); y = 45; }
+        doc.addImage(chartUrl, 'PNG', 40, y, W - 80, 140);
+        y += 156;
+      }
+    } catch (e) {}
 
     // Area checklist tables
     const chkCols = [
@@ -1327,7 +1493,8 @@
     }
 
     addPdfFooter(doc, W);
-    doc.save(`novotel-duty-report-${date}.pdf`);
+    if (!sharedDoc) doc.save(`novotel-duty-report-${date}.pdf`);
+    return doc;
   }
 
   async function exportAnalysisPdf() {
@@ -1692,6 +1859,10 @@
   window.canWrite = canWrite;
   window.apiFetch = apiFetch;
   window.state = state;
+  window.renderApp = render;
+  window.groupByMonth = groupByMonth;
+  window.exportDutyPdf = exportPdf;
+  window.NovotelPdf = { pdfHeader, pdfTable, addPdfFooter, getLogoDataUrl };
 
   init();
 })();

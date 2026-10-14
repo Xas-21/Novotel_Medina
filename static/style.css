@@ -768,6 +768,14 @@ h1, h2, h3 {
   background: var(--ok-bg);
   color: var(--ok);
 }
+.archive-month { margin-bottom: 12px; }
+.archive-month summary {
+  cursor: pointer;
+  padding: 14px 18px;
+  font-weight: 600;
+  color: var(--navy);
+}
+.archive-month canvas { margin: 0 18px 8px; max-width: calc(100% - 36px); }
 
 @media (max-width: 900px) {
   .dmr-root { flex-direction: column; }

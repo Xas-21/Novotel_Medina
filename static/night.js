@@ -135,9 +135,36 @@
 
   function renderNightSection(){
     const state = window.state;
-    if (!state || state.section !== 'night' || state.view !== 'today') {
-      return '<h1>Night Manager</h1>';
+    if (!state) return '<h1>Night Manager</h1>';
+    if (state.section === 'full') {
+      queueMicrotask(loadFullReport);
+      return `
+        <div class="dmr-headline"><h1>Full Report</h1></div>
+        <div class="dmr-sub">${escapeHtml(fmtDate(state.selectedDate))}</div>
+        <input type="date" id="dateInput" class="dmr-btn dmr-btn-ghost" style="padding:7px 12px;" value="${escapeHtml(state.selectedDate)}">
+        <div id="fullBody"><div class="dmr-empty"><h3>Loading full report…</h3></div></div>`;
     }
+    if (state.section !== 'night') return '<h1>Night Manager</h1>';
+    if (state.view === 'archive') {
+      queueMicrotask(loadNightArchive);
+      return `
+        <div class="dmr-headline"><h1>Night Archive</h1></div>
+        <div class="dmr-sub">Night manager reports by month</div>
+        <input type="date" id="archiveSearch" class="dmr-btn dmr-btn-ghost" style="padding:7px 12px;margin-bottom:12px;">
+        <div id="archiveList"><div class="dmr-card"><div class="dmr-empty">Loading archive…</div></div></div>`;
+    }
+    if (state.view === 'analysis') {
+      queueMicrotask(loadNightAnalysis);
+      const weekOn = state.analysisRange !== 'month';
+      return `
+        <div class="dmr-headline"><h1>Night Analysis</h1></div>
+        <div class="dmr-toolbar">
+          <button class="dmr-btn ${weekOn ? 'dmr-btn-primary' : 'dmr-btn-ghost'}" data-range="week">Weekly View</button>
+          <button class="dmr-btn ${weekOn ? 'dmr-btn-ghost' : 'dmr-btn-primary'}" data-range="month">Monthly View</button>
+        </div>
+        <div id="nightAnalysisBody"><div class="dmr-empty"><h3>Loading night analysis…</h3></div></div>`;
+    }
+    if (state.view !== 'today') return '<h1>Night Manager</h1>';
     const date = state.selectedDate;
     const token = ++loadToken;
     queueMicrotask(() => {
@@ -596,6 +623,275 @@
     if (!res) return 'Could not save';
     if (typeof res.detail === 'string') return res.detail;
     return 'Could not save';
+  }
+
+  function openNightDate(date){
+    const state = window.state;
+    state.section = 'night';
+    state.view = 'today';
+    state.selectedDate = date;
+    window.renderApp();
+  }
+
+  let nightArchive = [];
+
+  async function loadNightArchive(){
+    const entries = await window.apiFetch('/api/night/index');
+    nightArchive = entries || [];
+    const search = document.getElementById('archiveSearch');
+    if (search && !search._bound) {
+      search._bound = true;
+      search.onchange = paintNightArchive;
+    }
+    paintNightArchive();
+  }
+
+  function paintNightArchive(){
+    const el = document.getElementById('archiveList');
+    if (!el || !window.groupByMonth) return;
+    const search = document.getElementById('archiveSearch');
+    const query = search && search.value;
+    const state = window.state;
+    let rows = nightArchive;
+    if (query) rows = nightArchive.filter(entry => entry.date === query);
+    if (!rows.length) {
+      el.innerHTML = '<div class="dmr-empty"><h3>No archived reports yet</h3></div>';
+      return;
+    }
+    const writable = nightWritable();
+    const isAdmin = state.user && state.user.role === 'admin';
+    const openKey = query ? query.slice(0, 7) : (state.selectedDate || '').slice(0, 7);
+    el.innerHTML = window.groupByMonth(rows).map(group => `
+      <details class="archive-month dmr-card" ${group.key === openKey ? 'open' : ''}>
+        <summary>${escapeHtml(group.label)} (${group.entries.length})</summary>
+        ${group.entries.map(entry => `
+          <div class="dmr-archive-row">
+            <div>
+              <div class="dmr-archive-date">${escapeHtml(fmtDate(entry.date))}</div>
+              <span class="dmr-badge ${entry.status === 'submitted' ? 'dmr-badge-submitted' : 'dmr-badge-draft'}">${entry.status === 'submitted' ? 'Submitted' : 'Draft'}</span>
+              ${entry.occupancy != null ? `<span style="font-size:12px;color:var(--ink-soft);margin-left:8px;">Occ: ${escapeHtml(entry.occupancy)}%</span>` : ''}
+              ${entry.submittedBy ? `<div class="dmr-prepared-by">Prepared by: ${escapeHtml(entry.submittedBy)}</div>` : ''}
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-night-open="${escapeHtml(entry.date)}">Open</button>
+              ${(writable && (isAdmin || entry.status !== 'submitted')) ? `<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-night-edit="${escapeHtml(entry.date)}">Edit</button>` : ''}
+              <button type="button" class="dmr-btn dmr-btn-primary dmr-btn-sm" data-night-pdf="${escapeHtml(entry.date)}">Export PDF</button>
+              ${(writable && isAdmin) ? `<button type="button" class="dmr-btn dmr-btn-sm" data-night-delete="${escapeHtml(entry.date)}" style="background:var(--danger);color:#fff;">Delete</button>` : ''}
+            </div>
+          </div>`).join('')}
+      </details>`).join('');
+    el.querySelectorAll('[data-night-open], [data-night-edit]').forEach(btn => {
+      btn.onclick = () => openNightDate(btn.dataset.nightOpen || btn.dataset.nightEdit);
+    });
+    el.querySelectorAll('[data-night-pdf]').forEach(btn => {
+      btn.onclick = () => exportNightPdf(btn.dataset.nightPdf);
+    });
+    el.querySelectorAll('[data-night-delete]').forEach(btn => {
+      btn.onclick = async () => {
+        const res = await window.apiFetch('/api/night?date=' + encodeURIComponent(btn.dataset.nightDelete), { method: 'DELETE' });
+        if (res && res.success !== false && !res.detail) loadNightArchive();
+      };
+    });
+  }
+
+  function drawNightLine(id, values, labels){
+    const canvas = document.getElementById(id);
+    if (!canvas || !window.Chart) return;
+    if (canvas._chart) canvas._chart.destroy();
+    canvas._chart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: values,
+          borderColor: '#1e22aa',
+          backgroundColor: 'rgba(30,34,170,0.12)',
+          spanGaps: false,
+          tension: 0.2
+        }]
+      },
+      options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
+  }
+
+  async function loadNightAnalysis(){
+    const state = window.state;
+    const range = state.analysisRange === 'month' ? 'month' : 'week';
+    const data = await window.apiFetch('/api/night/analysis?date=' + encodeURIComponent(state.selectedDate) + '&range=' + range);
+    const body = document.getElementById('nightAnalysisBody');
+    if (!body || !data) return;
+    const revenue = data.revenue || {};
+    body.innerHTML = `
+      <div class="dmr-card dmr-chart-card"><h3>Occupancy %</h3><canvas id="nightOcc" height="120"></canvas></div>
+      <div class="dmr-card dmr-chart-card"><h3>ADR</h3><canvas id="nightAdr" height="120"></canvas></div>
+      <div class="dmr-card dmr-chart-card"><h3>RevPAR</h3><canvas id="nightRevpar" height="120"></canvas></div>
+      <div class="dmr-card dmr-chart-card"><h3>Revenue by department</h3><canvas id="nightRevenue" height="120"></canvas></div>
+      <div class="dmr-card dmr-section-card"><h3>Segments</h3>
+        ${(data.segments || []).map(seg => `<div class="dmr-recur-item"><span>${escapeHtml(seg.code)}</span><span class="dmr-recur-count">${escapeHtml(seg.rooms)}</span></div>`).join('')}
+      </div>
+      <button type="button" class="dmr-btn dmr-btn-primary" id="nightPdfBtn">Export night PDF</button>`;
+    drawNightLine('nightOcc', data.occupancy || [], data.labels || []);
+    drawNightLine('nightAdr', data.adr || [], data.labels || []);
+    drawNightLine('nightRevpar', data.revpar || [], data.labels || []);
+    const revenueCanvas = document.getElementById('nightRevenue');
+    if (revenueCanvas && window.Chart) {
+      if (revenueCanvas._chart) revenueCanvas._chart.destroy();
+      revenueCanvas._chart = new Chart(revenueCanvas, {
+        type: 'bar',
+        data: {
+          labels: ['Rooms', 'F&B', 'M&E', 'OOD', 'Other'],
+          datasets: [{
+            data: [revenue.rooms || 0, revenue.fb || 0, revenue.me || 0, revenue.ood || 0, revenue.other || 0],
+            backgroundColor: ['#1e22aa', '#A8814F', '#4F7A5B', '#C4813C', '#5B6673']
+          }]
+        },
+        options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+      });
+    }
+    const pdfBtn = document.getElementById('nightPdfBtn');
+    if (pdfBtn) pdfBtn.onclick = () => exportNightPdf(state.selectedDate);
+  }
+
+  async function writeNightPdf(doc, date){
+    const pdf = window.NovotelPdf;
+    const startPage = doc.internal.getNumberOfPages();
+    const data = await window.apiFetch('/api/night?date=' + encodeURIComponent(date));
+    const W = doc.internal.pageSize.getWidth();
+    if (!data || !data.status) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(12);
+      doc.text('Night report was not filed for this date', 40, 80);
+      return;
+    }
+    const logo = await pdf.getLogoDataUrl();
+    let y = pdf.pdfHeader(doc, W, logo, 'NIGHT MANAGER REPORT');
+    const c = data.calculated || {};
+    const m = data.mtd || {};
+    const gap = data.segmentGap || {};
+    const rows = [
+      ['Rooms occupied', String(data.roomsOccupied ?? ''), String(m.roomsOccupied ?? '')],
+      ['Occupancy', formatPercent(c.occupancy), formatPercent(m.occupancy)],
+      ['ADR', formatMoney(c.adr), formatMoney(m.adr)],
+      ['RevPAR', formatMoney(c.revpar), formatMoney(m.revpar)],
+      ['Grand total', formatMoney(c.grandTotal), formatMoney(m.grandTotal)]
+    ];
+    y = pdf.pdfTable(doc, W, y, [
+      {key:'ITEM', label:'', w:180},
+      {key:'LAST', label:'LAST NIGHT', w:160},
+      {key:'MTD', label:'MTD', w:160}
+    ], rows.map(row => ({ITEM: row[0], LAST: row[1], MTD: row[2]})));
+    y += 8;
+    const segmentRows = (data.segments || []).map(seg => ({CODE: seg.code, ROOMS: String(seg.rooms ?? ''), ADR: String(seg.adr ?? '')}));
+    segmentRows.push({CODE: 'Unassigned', ROOMS: String(gap.unassigned ?? ''), ADR: ''});
+    y = pdf.pdfTable(doc, W, y, [
+      {key:'CODE', label:'SEGMENT', w:160},
+      {key:'ROOMS', label:'ROOMS', w:120},
+      {key:'ADR', label:'ADR', w:120}
+    ], segmentRows);
+    y += 8;
+    y = pdf.pdfTable(doc, W, y, [
+      {key:'DATE', label:'FORECAST', w:110},
+      {key:'OCC', label:'OCC', w:70},
+      {key:'ARR', label:'ARR', w:70},
+      {key:'DEP', label:'DEP', w:70},
+      {key:'PCT', label:'OCC %', w:70}
+    ], (data.forecast || []).map(day => ({
+      DATE: day.date, OCC: String(day.totalOcc ?? ''), ARR: String(day.arrRooms ?? ''), DEP: String(day.depRooms ?? ''), PCT: String(day.occPct ?? '')
+    })));
+    y += 8;
+    if ((data.groups || []).length) {
+      y = pdf.pdfTable(doc, W, y, [
+        {key:'NAME', label:'GROUP', w:180},
+        {key:'ROOMS', label:'ROOMS', w:80},
+        {key:'ARR', label:'ARRIVAL', w:120},
+        {key:'DEP', label:'DEPARTURE', w:120}
+      ], data.groups.map(g => ({NAME: g.name || '', ROOMS: String(g.rooms ?? ''), ARR: g.arrival || '', DEP: g.departure || ''})));
+      y += 8;
+    }
+    if ((data.vip || []).length) {
+      y = pdf.pdfTable(doc, W, y, [
+        {key:'DATE', label:'VIP', w:120},
+        {key:'GOLD', label:'GOLD', w:80},
+        {key:'PLAT', label:'PLATINUM', w:90},
+        {key:'DIA', label:'DIAMOND', w:90},
+        {key:'STAY', label:'STAY', w:100}
+      ], data.vip.map(v => ({DATE: v.date || '', GOLD: String(v.gold ?? ''), PLAT: String(v.platinum ?? ''), DIA: String(v.diamond ?? ''), STAY: v.stay || ''})));
+      y += 8;
+    }
+    y = pdf.pdfTable(doc, W, y, [
+      {key:'AREA', label:'AREA', w:220},
+      {key:'REMARK', label:'REMARK', w:280}
+    ], (data.checklist || []).map(item => ({AREA: item.area, REMARK: item.remark || ''})));
+    y += 8;
+    (data.comments || []).forEach((text, i) => {
+      if (y > 760) { doc.addPage(); y = 48; }
+      doc.setFontSize(9);
+      doc.text('Comment ' + (i + 1) + ': ' + (text || '—'), 40, y, {maxWidth: W - 80});
+      y += 16;
+    });
+    if (data.submittedBy) {
+      doc.setFontSize(9);
+      doc.text('Prepared by: ' + data.submittedBy, 40, y + 8);
+    }
+    pdf.addPdfFooter(doc, W, 'Novotel — Night Manager Report', startPage);
+  }
+
+  async function exportNightPdf(date){
+    if (!window.jspdf || !window.NovotelPdf) return;
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    await writeNightPdf(doc, date);
+    doc.save('novotel-night-report-' + date + '.pdf');
+  }
+
+  async function exportCombinedPdf(date){
+    if (!window.jspdf || !window.exportDutyPdf) return;
+    const index = await window.apiFetch('/api/reports/index');
+    const dutyFiled = (index || []).some(entry => entry.date === date);
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    if (dutyFiled) await window.exportDutyPdf(date, doc);
+    else {
+      doc.setFontSize(12);
+      doc.text('Duty report was not filed for this date', 40, 80);
+    }
+    doc.addPage();
+    await writeNightPdf(doc, date);
+    doc.save('novotel-full-report-' + date + '.pdf');
+  }
+
+  async function loadFullReport(){
+    const state = window.state;
+    const date = state.selectedDate;
+    const body = document.getElementById('fullBody');
+    if (!body) return;
+    const index = await window.apiFetch('/api/reports/index');
+    const dutyMeta = (index || []).find(entry => entry.date === date);
+    const night = await window.apiFetch('/api/night?date=' + encodeURIComponent(date));
+    const duty = dutyMeta ? await window.apiFetch('/api/reports?date=' + encodeURIComponent(date)) : null;
+    const c = (night && night.calculated) || {};
+    const m = (night && night.mtd) || {};
+    body.innerHTML = `
+      <div class="dmr-card dmr-section-card">
+        <h3>Duty Manager</h3>
+        ${duty ? `
+          <p>Status: ${escapeHtml(duty.status || '')}</p>
+          <p>Occupancy: ${escapeHtml(duty.occupancy || '—')}</p>
+          <p>Arrivals: ${escapeHtml(duty.arrivals || '—')} · Departures: ${escapeHtml(duty.departures || '—')} · In house: ${escapeHtml(duty.inHouse || '—')}</p>
+          <p>${duty.submittedBy ? 'Prepared by: ' + escapeHtml(duty.submittedBy) : ''}</p>
+        ` : '<p>Duty report was not filed for this date</p>'}
+      </div>
+      <div class="dmr-card dmr-section-card">
+        <h3>Night Manager</h3>
+        ${(night && night.status) ? `
+          <p>Occupancy ${escapeHtml(formatPercent(c.occupancy))} · ADR ${escapeHtml(formatMoney(c.adr))} · RevPAR ${escapeHtml(formatMoney(c.revpar))}</p>
+          <p>Grand total ${escapeHtml(formatMoney(c.grandTotal))} · MTD ${escapeHtml(formatMoney(m.grandTotal))}</p>
+          <p>${night.submittedBy ? 'Prepared by: ' + escapeHtml(night.submittedBy) : ''}</p>
+        ` : '<p>Night report was not filed for this date</p>'}
+      </div>
+      <button type="button" class="dmr-btn dmr-btn-primary" id="fullPdfBtn">Export full PDF</button>`;
+    const btn = document.getElementById('fullPdfBtn');
+    if (btn) btn.onclick = () => exportCombinedPdf(date);
   }
 
   window.renderNightSection = renderNightSection;
