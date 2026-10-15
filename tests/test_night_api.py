@@ -180,15 +180,15 @@ def test_night_put_then_get_returns_adr_356(api, monkeypatch):
     assert events == [{"event": "NIGHT_REPORT_UPDATED", "date": "2026-10-08"}]
 
 
-def test_staff_put_returns_403_and_leaves_night_reports_empty(api, monkeypatch):
+def test_staff_can_save_a_night_report_when_covering(api, monkeypatch):
     client, db_path = api
     events = _capture_broadcasts(monkeypatch)
 
     res = client.put("/api/night", json=OCT_8, headers=_headers(USERS["staff"]))
 
-    assert res.status_code == 403
-    assert _night_count(db_path) == 0
-    assert events == []
+    assert res.status_code == 200
+    assert _night_count(db_path) == 1
+    assert events == [{"event": "NIGHT_REPORT_UPDATED", "date": "2026-10-08"}]
 
 
 def test_grand_total_includes_ood(api):
@@ -419,3 +419,47 @@ def test_month_analysis_series_and_ood_grand_total(api):
     assert week["revpar"] == [None] * 6 + [212]
     assert week["revenue"]["ood"] == 0
     assert week["segments"][0] == {"code": "SLA", "rooms": 0}
+
+
+def test_night_inspection_roundtrip(api):
+    client, _db_path = api
+    headers = _headers(USERS["night"])
+    payload = dict(OCT_8)
+    payload["date"] = "2026-10-10"
+    payload["inspection"] = {
+        "cafeteriaMealTime": "Dinner",
+        "checklists": {
+            "publicAreas": [{"status": False, "comment": "door", "photos": ["/api/uploads/x.jpg"]}]
+        },
+        "complaints": [{"complaint": "noise", "room": "12", "action": "called"}],
+        "notes": [{
+            "id": "n1",
+            "text": "leak",
+            "department": "Maintenance",
+            "priority": "urgent",
+            "status": "open",
+            "photo_url": None,
+            "manager": "Nora",
+            "time": "01:00",
+        }],
+    }
+
+    saved = client.put("/api/night", json=payload, headers=headers)
+    assert saved.status_code == 200
+    body = saved.json()
+    assert body["inspection"]["cafeteriaMealTime"] == "Dinner"
+    assert body["inspection"]["checklists"]["publicAreas"][0]["comment"] == "door"
+    assert body["inspection"]["notes"][0]["text"] == "leak"
+
+    again = client.get("/api/night?date=2026-10-10", headers=headers)
+    assert again.status_code == 200
+    assert again.json()["inspection"]["complaints"][0]["room"] == "12"
+
+    keep = dict(OCT_8)
+    keep["date"] = "2026-10-10"
+    kept = client.put("/api/night", json=keep, headers=headers)
+    assert kept.status_code == 200
+    assert kept.json()["inspection"]["cafeteriaMealTime"] == "Dinner"
+
+    blank = client.get("/api/night?date=2026-10-03", headers=headers)
+    assert blank.json()["inspection"] is None

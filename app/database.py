@@ -54,6 +54,7 @@ async def init_db():
             in_house TEXT DEFAULT '',
             all_members TEXT DEFAULT '',
             cafeteria_meal_time TEXT DEFAULT '',
+            cafeteria_time TEXT DEFAULT '',
             checklists_json TEXT DEFAULT '{}',
             cafeteria_items_json TEXT DEFAULT '[]',
             rooms_inspection_json TEXT DEFAULT '[]',
@@ -61,6 +62,7 @@ async def init_db():
             trust_you_json TEXT DEFAULT '{}',
             complaints_json TEXT DEFAULT '[]',
             incidents_json TEXT DEFAULT '[]',
+            general_comments_json TEXT DEFAULT '[]',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -79,6 +81,17 @@ async def init_db():
             status TEXT NOT NULL DEFAULT 'open',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (report_date) REFERENCES reports(date) ON DELETE CASCADE
+        )
+        """)
+
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS note_events (
+            id TEXT PRIMARY KEY,
+            note_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            actor TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
         )
         """)
 
@@ -122,6 +135,14 @@ async def init_db():
             vip_json TEXT NOT NULL DEFAULT '[]',
             checklist_json TEXT NOT NULL DEFAULT '[]',
             comments_json TEXT NOT NULL DEFAULT '[]',
+            inspection_json TEXT NOT NULL DEFAULT '{}',
+            shift_start TEXT NOT NULL DEFAULT '',
+            shift_end TEXT NOT NULL DEFAULT '',
+            arrivals TEXT NOT NULL DEFAULT '',
+            departures TEXT NOT NULL DEFAULT '',
+            in_house TEXT NOT NULL DEFAULT '',
+            all_members TEXT NOT NULL DEFAULT '',
+            overview_occupancy TEXT NOT NULL DEFAULT '',
             created_at TEXT,
             updated_at TEXT
         )
@@ -134,6 +155,19 @@ async def init_db():
             await db.execute("ALTER TABLE users ADD COLUMN last_name TEXT NOT NULL DEFAULT ''")
             await db.execute("ALTER TABLE users ADD COLUMN title TEXT NOT NULL DEFAULT ''")
             await db.commit()
+
+        report_cols = [r[1] for r in await (await db.execute("PRAGMA table_info(reports)")).fetchall()]
+        if "cafeteria_time" not in report_cols:
+            await db.execute("ALTER TABLE reports ADD COLUMN cafeteria_time TEXT DEFAULT ''")
+        if "general_comments_json" not in report_cols:
+            await db.execute("ALTER TABLE reports ADD COLUMN general_comments_json TEXT DEFAULT '[]'")
+
+        night_cols = [r[1] for r in await (await db.execute("PRAGMA table_info(night_reports)")).fetchall()]
+        for name in ("shift_start", "shift_end", "arrivals", "departures", "in_house", "all_members", "overview_occupancy"):
+            if name not in night_cols:
+                await db.execute(f"ALTER TABLE night_reports ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
+        if "inspection_json" not in night_cols:
+            await db.execute("ALTER TABLE night_reports ADD COLUMN inspection_json TEXT NOT NULL DEFAULT '{}'")
 
         await db.commit()
 

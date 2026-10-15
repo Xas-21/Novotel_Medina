@@ -63,6 +63,52 @@ def _report_count(db_path):
         con.close()
 
 
+def test_open_note_carries_onto_the_next_report(api):
+    client, _db_path = api
+    headers = _headers(USERS["staff"])
+    assert client.post("/api/reports", json={"date": "2099-03-01"}, headers=headers).status_code == 200
+    created = client.post(
+        "/api/notes/2099-03-01",
+        json={"department": "Maintenance", "priority": "urgent", "text": "Lobby light out"},
+        headers=headers,
+    )
+    assert created.status_code == 200
+    note_id = created.json()["id"]
+    assert client.post("/api/reports/2099-03-01/submit", headers=headers).status_code == 200
+
+    nxt = client.get("/api/reports", params={"date": "2099-03-02"}, headers=headers)
+    assert nxt.status_code == 200
+    carried = [n for n in nxt.json()["notes"] if n["id"] == note_id]
+    assert len(carried) == 1
+    assert carried[0]["carried"] is True
+    assert carried[0]["status"] == "open"
+    assert carried[0]["timeline"][0]["status"] == "open"
+
+    closed = client.patch(f"/api/notes/{note_id}", json={"status": "closed"}, headers=headers)
+    assert closed.status_code == 200
+    assert [event["status"] for event in closed.json()["timeline"]] == ["open", "closed"]
+    after = client.get("/api/reports", params={"date": "2099-03-02"}, headers=headers)
+    assert all(n["id"] != note_id for n in after.json()["notes"])
+
+
+def test_incidents_and_general_comments_save_separately(api):
+    client, _db_path = api
+    headers = _headers(USERS["staff"])
+    saved = client.post(
+        "/api/reports",
+        json={
+            "date": "2099-04-01",
+            "incidents": [{"description": "Power cut", "time": "02:10"}],
+            "generalComments": [{"comment": "Lobby was quiet", "time": "03:00"}],
+        },
+        headers=headers,
+    )
+    assert saved.status_code == 200
+    report = client.get("/api/reports", params={"date": "2099-04-01"}, headers=headers).json()
+    assert report["incidents"] == [{"description": "Power cut", "time": "02:10"}]
+    assert report["generalComments"] == [{"comment": "Lobby was quiet", "time": "03:00"}]
+
+
 def test_reports_index_requires_login(api):
     client, _ = api
     res = client.get("/api/reports/index")

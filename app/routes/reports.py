@@ -7,6 +7,7 @@ import aiosqlite
 from app.database import get_db
 from app.models import ReportSave, ReportIndexItem, TrustYouData
 from app.auth import can_write, get_current_user, require_admin, require_auth, TokenData
+from app.routes.notes import note_payload, timelines_for
 from app.ws import ws_manager
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -64,6 +65,7 @@ def default_report_dict(date: str) -> dict:
         "inHouse": "",
         "allMembers": "",
         "cafeteriaMealTime": "",
+        "cafeteriaTime": "",
         "checklists": checklists,
         "cafeteriaItems": [{'status': None, 'comment': '', 'photos': []} for _ in CAFETERIA_ITEMS],
         "roomsInspection": [],
@@ -71,13 +73,14 @@ def default_report_dict(date: str) -> dict:
         "trustYou": {"totalReviews": "", "gss": "", "keyPositive": "", "keyNegative": "", "comment": ""},
         "complaints": [],
         "incidents": [],
+        "generalComments": [],
         "notes": []
     }
 
 @router.get("/index")
 async def get_reports_index(db: aiosqlite.Connection = Depends(get_db), user: TokenData = Depends(require_auth)):
     cursor = await db.execute("""
-        SELECT r.date, r.status, r.submitted_at, r.submitted_by, r.occupancy,
+        SELECT r.date, r.status, r.submitted_at, r.submitted_by, r.occupancy, r.all_members,
                COUNT(n.id) as notes_count
         FROM reports r
         LEFT JOIN notes n ON r.date = n.report_date
@@ -93,6 +96,7 @@ async def get_reports_index(db: aiosqlite.Connection = Depends(get_db), user: To
             "submittedAt": row["submitted_at"],
             "submittedBy": row["submitted_by"],
             "occupancy": row["occupancy"] or "",
+            "allMembers": row["all_members"] or "",
             "notesCount": row["notes_count"]
         })
     return results
@@ -107,8 +111,21 @@ async def get_report(date: str, db: aiosqlite.Connection = Depends(get_db), user
         "SELECT id, report_date, department, priority, text, photo_url, manager, time, status, created_at FROM notes WHERE report_date = ? ORDER BY created_at ASC",
         (date,)
     )
-    notes_rows = await notes_cursor.fetchall()
-    notes = [dict(n) for n in notes_rows]
+    own_rows = [dict(n) for n in await notes_cursor.fetchall()]
+    carried_cursor = await db.execute(
+        """
+        SELECT n.id, n.report_date, n.department, n.priority, n.text, n.photo_url, n.manager, n.time, n.status, n.created_at
+        FROM notes n
+        JOIN reports r ON r.date = n.report_date
+        WHERE n.report_date < ? AND n.status IN ('open', 'progress') AND r.status = 'submitted'
+        ORDER BY n.report_date ASC, n.created_at ASC
+        """,
+        (date,),
+    )
+    carried_rows = [dict(n) for n in await carried_cursor.fetchall()]
+    timelines = await timelines_for(db, [n["id"] for n in carried_rows + own_rows])
+    notes = [note_payload(n, timelines.get(n["id"]), True) for n in carried_rows]
+    notes += [note_payload(n, timelines.get(n["id"]), False) for n in own_rows]
     
     if not row:
         rep = default_report_dict(date)
@@ -135,6 +152,7 @@ async def get_report(date: str, db: aiosqlite.Connection = Depends(get_db), user
     trust_you = safe_json_load(row["trust_you_json"], {"totalReviews": "", "gss": "", "keyPositive": "", "keyNegative": "", "comment": ""})
     complaints = safe_json_load(row["complaints_json"], [])
     incidents = safe_json_load(row["incidents_json"], [])
+    general_comments = safe_json_load(row["general_comments_json"], []) if "general_comments_json" in row.keys() else []
     
     return {
         "date": row["date"],
@@ -149,6 +167,7 @@ async def get_report(date: str, db: aiosqlite.Connection = Depends(get_db), user
         "inHouse": row["in_house"] or "",
         "allMembers": row["all_members"] or "",
         "cafeteriaMealTime": row["cafeteria_meal_time"] or "",
+        "cafeteriaTime": (row["cafeteria_time"] or "") if "cafeteria_time" in row.keys() else "",
         "checklists": checklists,
         "cafeteriaItems": cafeteria_items,
         "roomsInspection": rooms_inspection,
@@ -156,6 +175,7 @@ async def get_report(date: str, db: aiosqlite.Connection = Depends(get_db), user
         "trustYou": trust_you,
         "complaints": complaints,
         "incidents": incidents,
+        "generalComments": general_comments,
         "notes": notes
     }
 
@@ -175,6 +195,7 @@ async def save_report(
     trust_you_json = json.dumps(data.trustYou.dict() if data.trustYou else {})
     complaints_json = json.dumps(data.complaints)
     incidents_json = json.dumps(data.incidents)
+    general_comments_json = json.dumps(data.generalComments or [])
     
     cursor = await db.execute("SELECT date, status FROM reports WHERE date = ?", (data.date,))
     exists = await cursor.fetchone()
@@ -188,30 +209,30 @@ async def save_report(
         await db.execute("""
             UPDATE reports SET
                 shift_start = ?, shift_end = ?, occupancy = ?, arrivals = ?, departures = ?,
-                in_house = ?, all_members = ?, cafeteria_meal_time = ?, checklists_json = ?,
+                in_house = ?, all_members = ?, cafeteria_meal_time = ?, cafeteria_time = ?, checklists_json = ?,
                 cafeteria_items_json = ?, rooms_inspection_json = ?, courtesy_calls_json = ?,
-                trust_you_json = ?, complaints_json = ?, incidents_json = ?, updated_at = ?
+                trust_you_json = ?, complaints_json = ?, incidents_json = ?, general_comments_json = ?, updated_at = ?
             WHERE date = ?
         """, (
             data.shiftStart, data.shiftEnd, data.occupancy, data.arrivals, data.departures,
-            data.inHouse, data.allMembers, data.cafeteriaMealTime, checklists_json,
+            data.inHouse, data.allMembers, data.cafeteriaMealTime, data.cafeteriaTime or "", checklists_json,
             cafeteria_json, rooms_json, courtesy_json,
-            trust_you_json, complaints_json, incidents_json, now_str,
+            trust_you_json, complaints_json, incidents_json, general_comments_json, now_str,
             data.date
         ))
     else:
         await db.execute("""
             INSERT INTO reports (
                 date, status, shift_start, shift_end, occupancy, arrivals, departures,
-                in_house, all_members, cafeteria_meal_time, checklists_json,
+                in_house, all_members, cafeteria_meal_time, cafeteria_time, checklists_json,
                 cafeteria_items_json, rooms_inspection_json, courtesy_calls_json,
-                trust_you_json, complaints_json, incidents_json, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                trust_you_json, complaints_json, incidents_json, general_comments_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data.date, data.status or 'draft', data.shiftStart, data.shiftEnd, data.occupancy, data.arrivals, data.departures,
-            data.inHouse, data.allMembers, data.cafeteriaMealTime, checklists_json,
+            data.inHouse, data.allMembers, data.cafeteriaMealTime, data.cafeteriaTime or "", checklists_json,
             cafeteria_json, rooms_json, courtesy_json,
-            trust_you_json, complaints_json, incidents_json, now_str, now_str
+            trust_you_json, complaints_json, incidents_json, general_comments_json, now_str, now_str
         ))
     
     await db.commit()
@@ -340,19 +361,40 @@ async def get_analysis(
     )
     notes_rows = await notes_cursor.fetchall()
     all_notes = [dict(n) for n in notes_rows]
+    earlier_cursor = await db.execute(
+        """
+        SELECT n.id, n.report_date, n.department, n.priority, n.text, n.photo_url, n.manager, n.time, n.status, n.created_at
+        FROM notes n
+        JOIN reports r ON r.date = n.report_date
+        WHERE n.report_date < ? AND n.status IN ('open', 'progress') AND r.status = 'submitted'
+        ORDER BY n.report_date ASC, n.created_at ASC
+        """,
+        (start_date,),
+    )
+    earlier_notes = [dict(n) for n in await earlier_cursor.fetchall()]
+    action_timelines = await timelines_for(db, [n["id"] for n in earlier_notes + all_notes])
+    report_status = {row["date"]: row["status"] for row in rows}
+    action_items = []
+    for note in earlier_notes + all_notes:
+        item = note_payload(note, action_timelines.get(note["id"]), note["report_date"] < start_date)
+        item["reportStatus"] = "submitted" if item["carried"] else (report_status.get(note["report_date"]) or "")
+        action_items.append(item)
     
     total_fail = 0
     section_fails = {sec["title"]: 0 for sec in AREA_SECTIONS}
     section_fails["Staff Cafeteria"] = 0
     item_fail_counts: Dict[str, int] = {}
+    item_notes: Dict[str, list] = {}
     
     complaints_list = []
     incidents_list = []
+    general_comments_list = []
     courtesy_neg_list = []
     courtesy_pos_count = 0
     courtesy_neg_count = 0
     gss_sum = 0.0
     gss_count = 0
+    gss_by_date = {}
     reviews_sum = 0
     neg_comments = []
     pos_comments = []
@@ -363,6 +405,7 @@ async def get_analysis(
         cafeteria_items = json.loads(row["cafeteria_items_json"]) if row["cafeteria_items_json"] else []
         complaints = json.loads(row["complaints_json"]) if row["complaints_json"] else []
         incidents = json.loads(row["incidents_json"]) if row["incidents_json"] else []
+        general_comments = json.loads(row["general_comments_json"]) if "general_comments_json" in row.keys() and row["general_comments_json"] else []
         courtesy = json.loads(row["courtesy_calls_json"]) if row["courtesy_calls_json"] else []
         trust_you = json.loads(row["trust_you_json"]) if row["trust_you_json"] else {}
         
@@ -376,6 +419,9 @@ async def get_analysis(
                     label = sec_def_item if isinstance(sec_def_item, str) else sec_def_item.get("label", f"Item {idx+1}")
                     item_key = f"{sec['title']} — {label}"
                     item_fail_counts[item_key] = item_fail_counts.get(item_key, 0) + 1
+                    note = str(entry.get("comment") or "").strip()
+                    if note:
+                        item_notes.setdefault(item_key, []).append({"date": r_date, "text": note})
         
         for idx, entry in enumerate(cafeteria_items):
             if entry.get("status") is False:
@@ -384,6 +430,9 @@ async def get_analysis(
                 label = CAFETERIA_ITEMS[idx] if idx < len(CAFETERIA_ITEMS) else f"Cafeteria Item {idx+1}"
                 item_key = f"Staff Cafeteria — {label}"
                 item_fail_counts[item_key] = item_fail_counts.get(item_key, 0) + 1
+                note = str(entry.get("comment") or "").strip()
+                if note:
+                    item_notes.setdefault(item_key, []).append({"date": r_date, "text": note})
         
         for c in complaints:
             if c.get("complaint"):
@@ -392,6 +441,9 @@ async def get_analysis(
         for inc in incidents:
             if inc.get("description"):
                 incidents_list.append({"date": r_date, **inc})
+        for comment in general_comments:
+            if comment.get("comment"):
+                general_comments_list.append({"date": r_date, **comment})
                 
         for cc in courtesy:
             if cc.get("impression") is False:
@@ -407,6 +459,7 @@ async def get_analysis(
                     gss_num = float(gss_val)
                     gss_sum += gss_num
                     gss_count += 1
+                    gss_by_date[r_date] = round(gss_num, 1)
                 except ValueError:
                     pass
             rev_val = trust_you.get("totalReviews")
@@ -421,9 +474,18 @@ async def get_analysis(
                 pos_comments.append({"date": r_date, "text": trust_you["keyPositive"]})
     
     top_sections = sorted([[k, v] for k, v in section_fails.items() if v > 0], key=lambda x: x[1], reverse=True)
-    top_items = sorted([[k, v] for k, v in item_fail_counts.items()], key=lambda x: x[1], reverse=True)[:8]
+    top_items = [
+        {"label": label, "count": count, "notes": item_notes.get(label, [])}
+        for label, count in sorted(item_fail_counts.items(), key=lambda x: x[1], reverse=True)[:8]
+    ]
     avg_gss = round(gss_sum / gss_count, 1) if gss_count > 0 else "—"
-    open_notes_count = len([n for n in all_notes if n.get("status") != "closed"])
+    gss_series = []
+    cursor_day = datetime.strptime(start_date, "%Y-%m-%d")
+    end_day = datetime.strptime(end_date, "%Y-%m-%d")
+    while cursor_day <= end_day:
+        gss_series.append(gss_by_date.get(cursor_day.strftime("%Y-%m-%d")))
+        cursor_day += timedelta(days=1)
+    open_notes_count = len([n for n in action_items if n.get("status") != "closed"])
     
     return {
         "range": range,
@@ -432,16 +494,19 @@ async def get_analysis(
         "endDate": end_date,
         "totalFail": total_fail,
         "totalNotesOpen": open_notes_count,
+        "actionItems": action_items,
         "totalIncidents": len(incidents_list),
         "courtesyNeg": courtesy_neg_count,
         "courtesyPos": courtesy_pos_count,
         "avgGss": avg_gss,
+        "gss": gss_series,
         "reviewsSum": reviews_sum,
         "sectionFails": section_fails,
         "topSections": top_sections,
         "topItems": top_items,
         "complaintsList": complaints_list,
         "incidentsList": incidents_list,
+        "generalCommentsList": general_comments_list,
         "courtesyNegList": courtesy_neg_list,
         "negComments": neg_comments,
         "posComments": pos_comments

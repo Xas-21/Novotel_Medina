@@ -39,6 +39,11 @@ class NoteUpdate(BaseModel):
     priority: Optional[str] = None
     text: Optional[str] = None
 
+class NoteEvent(BaseModel):
+    status: str
+    at: str = ""
+    actor: str = ""
+
 class NoteResponse(BaseModel):
     id: str
     report_date: str
@@ -50,6 +55,8 @@ class NoteResponse(BaseModel):
     time: str
     status: str
     created_at: Optional[str] = None
+    carried: bool = False
+    timeline: list = []
 
 class ChecklistItem(BaseModel):
     status: Optional[bool] = None
@@ -74,6 +81,7 @@ class ReportSave(BaseModel):
     inHouse: Optional[str] = ""
     allMembers: Optional[str] = ""
     cafeteriaMealTime: Optional[str] = ""
+    cafeteriaTime: Optional[str] = ""
     checklists: Optional[Dict[str, List[ChecklistItem]]] = Field(default_factory=dict)
     cafeteriaItems: Optional[List[ChecklistItem]] = Field(default_factory=list)
     roomsInspection: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
@@ -81,6 +89,7 @@ class ReportSave(BaseModel):
     trustYou: Optional[TrustYouData] = Field(default_factory=TrustYouData)
     complaints: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
     incidents: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    generalComments: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
 
 class ReportIndexItem(BaseModel):
     date: str

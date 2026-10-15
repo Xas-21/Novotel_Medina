@@ -126,6 +126,14 @@
       })),
       checklist: (data.checklist || []).map(item => ({area: item.area, remark: item.remark || ''})),
       comments: [0, 1, 2, 3].map(i => comments[i] || ''),
+      inspection: window.normalizeNightInspection ? window.normalizeNightInspection(data.inspection) : (data.inspection || {}),
+      shiftStart: data.shiftStart || '',
+      shiftEnd: data.shiftEnd || '',
+      arrivals: data.arrivals || '',
+      departures: data.departures || '',
+      inHouse: data.inHouse || '',
+      allMembers: data.allMembers || '',
+      overviewOccupancy: data.overviewOccupancy || '',
       calculated: data.calculated || {},
       segmentGap: data.segmentGap || {segmentRooms: 0, unassigned: 0},
       mtd: data.mtd || {},
@@ -139,8 +147,7 @@
     if (state.section === 'full') {
       queueMicrotask(loadFullReport);
       return `
-        <div class="dmr-headline"><h1>Full Report</h1></div>
-        <div class="dmr-sub">Duty and night together for the dates you choose</div>
+        <div class="dmr-headline"><h1>Dashboard</h1></div>
         ${window.periodBar ? window.periodBar() : ''}
         <div id="fullBody"><div class="dmr-empty"><h3>Loading full report…</h3></div></div>`;
     }
@@ -170,7 +177,7 @@
     });
     return `
       <div class="dmr-headline">
-        <h1>Night Manager</h1>
+        <h1>Night Manager Report</h1>
         <input type="date" id="dateInput" class="dmr-btn-ghost dmr-btn" style="padding:7px 12px;" value="${escapeHtml(date)}">
       </div>
       <div class="dmr-sub">${escapeHtml(fmtDate(date))}</div>
@@ -245,6 +252,16 @@
     return `
       <div id="nightForm" data-date="${escapeHtml(d.date)}">
         <div class="dmr-card dmr-section-card">
+          <h3>Shift &amp; Operations Overview</h3>
+          <div class="dmr-row">
+            <div class="dmr-field"><label>Shift Start</label><input type="time" data-field="shiftStart" value="${escapeHtml(d.shiftStart)}" ${dis}></div>
+            <div class="dmr-field"><label>Shift End</label><input type="time" data-field="shiftEnd" value="${escapeHtml(d.shiftEnd)}" ${dis}></div>
+            <div class="dmr-field"><label>Arrivals</label><input type="text" inputmode="numeric" data-field="arrivals" value="${escapeHtml(d.arrivals)}" ${dis}></div>
+            <div class="dmr-field"><label>Departures</label><input type="text" inputmode="numeric" data-field="departures" value="${escapeHtml(d.departures)}" ${dis}></div>
+            <div class="dmr-field"><label>ALL Loyalty Members</label><input type="text" inputmode="numeric" data-field="allMembers" value="${escapeHtml(d.allMembers)}" ${dis}></div>
+          </div>
+        </div>
+        <div class="dmr-card dmr-section-card">
           <div class="night-card-head"><h3>General information</h3>${badge}</div>
           <table class="night-figures">
             <thead>
@@ -285,11 +302,11 @@
           <h3>Groups</h3>
           ${d.groups.map((g, i) => `
             <div class="night-record" data-group="${i}">
-              ${labeled('Day', `<input data-g="day" value="${escapeHtml(g.day)}" ${dis}>`)}
+              ${labeled('Day', `<input type="date" data-g="day" value="${escapeHtml(g.day)}" ${dis}>`)}
               ${labeled('Name', `<input data-g="name" value="${escapeHtml(g.name)}" ${dis}>`)}
               ${labeled('Rooms', `<input data-g="rooms" inputmode="decimal" value="${escapeHtml(g.rooms)}" ${dis}>`)}
-              ${labeled('Arrival', `<input data-g="arrival" value="${escapeHtml(g.arrival)}" ${dis}>`)}
-              ${labeled('Departure', `<input data-g="departure" value="${escapeHtml(g.departure)}" ${dis}>`)}
+              ${labeled('Arrival', `<input type="date" data-g="arrival" value="${escapeHtml(g.arrival)}" ${dis}>`)}
+              ${labeled('Departure', `<input type="date" data-g="departure" value="${escapeHtml(g.departure)}" ${dis}>`)}
               <button type="button" class="dmr-dyn-del" data-night-del="group" ${dis}>✕</button>
             </div>`).join('')}
           <button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-night-add="group" ${dis}>+ Add group</button>
@@ -333,22 +350,9 @@
           </div>
         </div>
 
-        <div class="dmr-card dmr-section-card">
-          <h3>Night observation</h3>
-          ${d.checklist.map((item, i) => `
-            <div class="dmr-field">
-              <label>${escapeHtml(item.area)}</label>
-              <input data-remark="${i}" value="${escapeHtml(item.remark)}" ${dis}>
-            </div>`).join('')}
-        </div>
+        ${window.renderNightInspection ? window.renderNightInspection(d.inspection, !!editingLocked()) : ''}
 
         <div class="dmr-card dmr-section-card">
-          <h3>General comments</h3>
-          ${d.comments.map((text, i) => `
-            <div class="dmr-field">
-              <label>General comment ${i + 1}</label>
-              <textarea data-comment="${i}" rows="2" ${dis}>${escapeHtml(text)}</textarea>
-            </div>`).join('')}
           <p id="nightPrepared" class="dmr-prepared-by"${d.submittedBy ? '' : ' hidden'}>Prepared by: ${escapeHtml(d.submittedBy || '')}</p>
           ${editingLocked() ? '' : `
             <div class="night-actions">
@@ -384,18 +388,200 @@
   function onEdit(e){
     const t = e.target;
     if (!t || !t.closest || !t.closest('#nightForm')) return;
+    if (t.id === 'nightNotePhoto') {
+      uploadNightNotePhoto(t);
+      return;
+    }
     if (t.matches('input, textarea, select')) queueNightSave();
   }
 
   function onClick(e){
     const t = e.target;
     if (!t || !t.closest) return;
+    const form = t.closest('#nightForm');
+    const view = t.closest('[data-chk-photo], img[data-photo]');
+    if (view && form) {
+      window.state.modalImg = view.getAttribute('src');
+      if (window.renderOverlays) window.renderOverlays();
+      return;
+    }
+    const summary = t.closest('#nightInspection summary');
+    if (summary) {
+      const acc = summary.parentElement;
+      setTimeout(() => {
+        if (!window.state || !acc) return;
+        if (acc.open) window.state.openAcc.add(acc.dataset.acc);
+        else window.state.openAcc.delete(acc.dataset.acc);
+      }, 0);
+      return;
+    }
+    if (!form || editingLocked()) return;
+    const chk = t.closest('[data-chk]');
+    if (chk) { e.preventDefault(); toggleNightCheck(chk); return; }
+    const addPhoto = t.closest('[data-chk-photo-add]');
+    if (addPhoto) {
+      e.preventDefault();
+      window.state.photoTarget = addPhoto.dataset.chkPhotoAdd.split('|');
+      const input = document.getElementById('checklistPhotoInput');
+      if (input) input.click();
+      return;
+    }
+    const delPhoto = t.closest('[data-chk-photo-del]');
+    if (delPhoto) { e.preventDefault(); deleteNightCheckPhoto(delPhoto); return; }
+    const dynToggle = t.closest('[data-dyn-toggle]');
+    if (dynToggle) { e.preventDefault(); toggleNightDyn(dynToggle); return; }
+    const dynDel = t.closest('[data-dyn-del]');
+    if (dynDel && dynDel.closest('#nightInspection')) { e.preventDefault(); deleteNightDyn(dynDel); return; }
+    const addList = t.closest('[data-add-row]');
+    if (addList) { e.preventDefault(); addNightListRow(addList.dataset.addRow); return; }
+    if (t.id === 'nightAddNoteBtn' || t.closest('#nightAddNoteBtn')) { e.preventDefault(); addNightNote(); return; }
+    const noteDel = t.closest('[data-night-note-del]');
+    if (noteDel) { e.preventDefault(); deleteNightNote(noteDel.dataset.nightNoteDel); return; }
     const add = t.closest('[data-night-add]');
     const del = t.closest('[data-night-del]');
     if (add) { e.preventDefault(); addRow(add.dataset.nightAdd); return; }
     if (del) { e.preventDefault(); deleteRow(del); return; }
     if (e.target.id === 'nightSaveBtn') { e.preventDefault(); saveNow(); }
     if (e.target.id === 'nightSubmitBtn') { e.preventDefault(); submitNight(); }
+  }
+
+  function inspectionList(secKey) {
+    const pack = draft && draft.inspection;
+    if (!pack) return null;
+    if (secKey === 'cafeteriaItems') return pack.cafeteriaItems;
+    return pack.checklists && pack.checklists[secKey];
+  }
+
+  function toggleNightCheck(btn) {
+    if (editingLocked() || !draft) return;
+    syncDraftFromDom();
+    const row = btn.closest('[data-chk-section]');
+    const arr = inspectionList(row.dataset.chkSection);
+    const idx = parseInt(row.dataset.chkIdx, 10);
+    if (!arr || !arr[idx]) return;
+    const want = btn.dataset.chk === 'ok';
+    arr[idx].status = arr[idx].status === want ? null : want;
+    paint();
+    queueNightSave();
+  }
+
+  function deleteNightCheckPhoto(btn) {
+    if (editingLocked() || !draft) return;
+    syncDraftFromDom();
+    const parts = btn.dataset.chkPhotoDel.split('|');
+    const arr = inspectionList(parts[0]);
+    const item = arr && arr[parseInt(parts[1], 10)];
+    if (!item || !item.photos) return;
+    item.photos.splice(parseInt(parts[2], 10), 1);
+    paint();
+    queueNightSave();
+  }
+
+  function toggleNightDyn(btn) {
+    if (editingLocked() || !draft || !draft.inspection) return;
+    syncDraftFromDom();
+    const row = btn.closest('[data-dyn-list]');
+    const list = draft.inspection[row.dataset.dynList];
+    const dataRow = list && list[parseInt(row.dataset.dynIdx, 10)];
+    if (!dataRow) return;
+    const field = btn.dataset.dynToggle;
+    const want = btn.classList.contains('ok');
+    dataRow[field] = dataRow[field] === want ? null : want;
+    paint();
+    queueNightSave();
+  }
+
+  function deleteNightDyn(btn) {
+    if (editingLocked() || !draft || !draft.inspection) return;
+    syncDraftFromDom();
+    const row = btn.closest('[data-dyn-list]');
+    const list = draft.inspection[row.dataset.dynList];
+    if (!list) return;
+    list.splice(parseInt(row.dataset.dynIdx, 10), 1);
+    paint();
+    queueNightSave();
+  }
+
+  function addNightListRow(key) {
+    if (editingLocked() || !draft || !draft.inspection) return;
+    syncDraftFromDom();
+    const templates = {
+      roomsInspection: { room: '', status: null, comment: '' },
+      complaints: { complaint: '', room: '', action: '' },
+      incidents: { description: '', time: '' },
+      generalComments: { comment: '', time: '' }
+    };
+    if (!templates[key] || !Array.isArray(draft.inspection[key])) return;
+    draft.inspection[key].push(templates[key]);
+    if (window.state) window.state.openAcc.add(key);
+    paint();
+    queueNightSave();
+  }
+
+  function addNightNote() {
+    if (editingLocked() || !draft || !draft.inspection) return;
+    syncDraftFromDom();
+    const textEl = document.getElementById('nightNoteText');
+    const text = textEl ? textEl.value.trim() : '';
+    if (!text) { showNote('Please type your note observation first'); return; }
+    const photo = document.getElementById('nightNotePhoto');
+    const user = window.state && window.state.user;
+    const name = user ? (((user.first_name || '') + ' ' + (user.last_name || '')).trim() || user.username || '') : '';
+    draft.inspection.notes.push({
+      id: 'nn_' + Date.now(),
+      department: (document.getElementById('nightNoteDept') || {}).value || 'Other',
+      priority: (document.getElementById('nightNotePriority') || {}).value || 'normal',
+      text: text,
+      photo_url: photo && photo.dataset.url ? photo.dataset.url : null,
+      manager: user && user.title ? (name + ' — ' + user.title) : name,
+      time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Riyadh' }),
+      status: 'open'
+    });
+    if (window.state) window.state.openAcc.add('notes');
+    paint();
+    queueNightSave();
+    showNote('Note logged');
+  }
+
+  function deleteNightNote(id) {
+    if (editingLocked() || !draft || !draft.inspection) return;
+    syncDraftFromDom();
+    draft.inspection.notes = (draft.inspection.notes || []).filter(n => n.id !== id);
+    paint();
+    queueNightSave();
+  }
+
+  async function uploadNightNotePhoto(input) {
+    const file = input.files && input.files[0];
+    if (!file || !window.uploadDutyPhoto || editingLocked()) return;
+    showNote('Uploading photo…');
+    const url = await window.uploadDutyPhoto(file);
+    const prev = document.getElementById('nightNotePreview');
+    if (url && prev) {
+      prev.src = url;
+      prev.style.display = 'block';
+      input.dataset.url = url;
+      showNote('Photo uploaded');
+    } else {
+      showNote('Photo upload failed');
+    }
+  }
+
+  async function applyNightChecklistPhoto(file, target) {
+    if (editingLocked() || !draft || !draft.inspection || !target || !window.uploadDutyPhoto) return;
+    syncDraftFromDom();
+    const arr = inspectionList(target[0]);
+    const item = arr && arr[parseInt(target[1], 10)];
+    if (!item) return;
+    if (!item.photos) item.photos = [];
+    if (item.photos.length >= 2) { showNote('Maximum 2 photos per item'); return; }
+    showNote('Uploading photo…');
+    const url = await window.uploadDutyPhoto(file);
+    if (!url) { showNote('Photo upload failed'); return; }
+    item.photos.push(url);
+    paint();
+    queueNightSave();
+    showNote('Photo added');
   }
 
   function addRow(kind){
@@ -421,7 +607,7 @@
   function syncDraftFromDom(){
     const form = document.getElementById('nightForm');
     if (!form || !draft) return;
-    ['roomsOccupied','roomsRevenue','fbRevenue','meRevenue','oodRevenue','otherRevenue'].forEach(key => {
+    ['roomsOccupied','roomsRevenue','fbRevenue','meRevenue','oodRevenue','otherRevenue','shiftStart','shiftEnd','arrivals','departures','inHouse','allMembers','overviewOccupancy'].forEach(key => {
       const el = form.querySelector(`[data-field="${key}"]`);
       if (el) draft[key] = el.value;
     });
@@ -457,7 +643,37 @@
     });
     draft.comments = [0, 1, 2, 3].map(i => {
       const el = form.querySelector(`[data-comment="${i}"]`);
-      return el ? el.value : '';
+      return el ? el.value : (draft.comments[i] || '');
+    });
+    syncInspectionFromDom(form);
+  }
+
+  function syncInspectionFromDom(form) {
+    const pack = draft.inspection;
+    if (!pack) return;
+    form.querySelectorAll('#nightInspection [data-chk-section]').forEach(row => {
+      const sec = row.dataset.chkSection;
+      const idx = parseInt(row.dataset.chkIdx, 10);
+      const arr = sec === 'cafeteriaItems' ? pack.cafeteriaItems : (pack.checklists && pack.checklists[sec]);
+      if (!arr || !arr[idx]) return;
+      const comment = row.querySelector('[data-chk-comment]');
+      if (comment) arr[idx].comment = comment.value;
+    });
+    const meal = form.querySelector('[data-night-meal]');
+    if (meal) pack.cafeteriaMealTime = meal.value;
+    const mealTime = form.querySelector('[data-night-time]');
+    if (mealTime) pack.cafeteriaTime = mealTime.value;
+    form.querySelectorAll('#nightInspection [data-dyn-list]').forEach(row => {
+      const list = pack[row.dataset.dynList];
+      const dataRow = list && list[parseInt(row.dataset.dynIdx, 10)];
+      if (!dataRow) return;
+      row.querySelectorAll('[data-dyn-field]').forEach(inp => {
+        dataRow[inp.dataset.dynField] = inp.value;
+      });
+    });
+    form.querySelectorAll('[data-night-note-status]').forEach(sel => {
+      const note = (pack.notes || []).find(n => n.id === sel.dataset.nightNoteStatus);
+      if (note) note.status = sel.value;
     });
   }
 
@@ -486,12 +702,21 @@
         date: v.date, gold: num(v.gold), platinum: num(v.platinum), diamond: num(v.diamond), stay: v.stay
       })),
       checklist: draft.checklist.map(item => ({area: item.area, remark: item.remark})),
-      comments: comments
+      comments: comments,
+      inspection: draft.inspection,
+      shiftStart: draft.shiftStart || '',
+      shiftEnd: draft.shiftEnd || '',
+      arrivals: draft.arrivals || '',
+      departures: draft.departures || '',
+      inHouse: draft.inHouse || '',
+      allMembers: draft.allMembers || '',
+      overviewOccupancy: draft.overviewOccupancy || ''
     };
   }
 
   function queueNightSave(){
     if (editingLocked()) return;
+    syncDraftFromDom();
     pending = true;
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => { saveTimer = null; kick(); }, 500);
@@ -691,6 +916,29 @@
     });
   }
 
+  function drawRatesChart(canvasId, labels, adr, revpar){
+    const canvas = document.getElementById(canvasId);
+    const charts = window.NovotelCharts;
+    if (!canvas || !charts) return;
+    const options = charts.chartFrame();
+    options.plugins.legend = {
+      display: true,
+      position: 'top',
+      align: 'end',
+      labels: { usePointStyle: true, pointStyle: 'circle', boxWidth: 8, color: '#5B6673', font: { family: 'Aptos, Calibri, sans-serif', size: 11 } }
+    };
+    options.plugins.tooltip.displayColors = true;
+    const adrSeries = charts.areaSeries(canvas, 'ADR', adr, '#14b8a6', '20,184,166');
+    const revparSeries = charts.areaSeries(canvas, 'RevPAR', revpar, '#1e22aa', '30,34,170');
+    adrSeries.spanGaps = true;
+    revparSeries.spanGaps = true;
+    charts.mountChart(canvas, {
+      type: 'line',
+      data: { labels: labels, datasets: [adrSeries, revparSeries] },
+      options: options
+    });
+  }
+
   function drawNightLine(id, values, labels, hex, rgb, name){
     const canvas = document.getElementById(id);
     const charts = window.NovotelCharts;
@@ -726,12 +974,16 @@
     body.innerHTML = `
       <div class="dmr-card dmr-chart-card"><h3>Occupancy %</h3><div class="chart-box"><canvas id="nightOcc"></canvas></div></div>
       <div class="dmr-card dmr-chart-card"><h3>ADR and RevPAR</h3><div class="chart-box"><canvas id="nightRates"></canvas></div></div>
-      <div class="dmr-card dmr-chart-card"><h3>Revenue by department</h3><div class="chart-box"><canvas id="nightRevenue"></canvas></div></div>
+      <div class="dmr-card dmr-chart-card"><h3>Revenue by Departments</h3><div class="chart-box"><canvas id="nightRevenue"></canvas></div></div>
       <div class="dmr-card dmr-chart-card"><h3>Segments</h3><div class="chart-box"><canvas id="nightSegments"></canvas></div></div>
       <button type="button" class="dmr-btn dmr-btn-primary" id="nightPdfBtn">Export analysis PDF</button>`;
     const occ = (data.occupancy || []).map(value => value == null ? 0 : value);
     nightPack = data;
-    drawNightLine('nightOcc', occ, data.labels || [], '#1e22aa', '30,34,170', 'Occupancy %');
+    if (window.drawOccupancyChart) {
+      window.drawOccupancyChart('nightOcc', { labels: data.labels || [], values: occ, loyalty: data.loyalty || [] });
+    } else {
+      drawNightLine('nightOcc', occ, data.labels || [], '#1e22aa', '30,34,170', 'Occupancy %');
+    }
     const rates = document.getElementById('nightRates');
     if (rates && charts) {
       const options = charts.chartFrame();
@@ -739,7 +991,7 @@
         display: true,
         position: 'top',
         align: 'end',
-        labels: { usePointStyle: true, pointStyle: 'circle', boxWidth: 8, color: '#5B6673', font: { family: 'Inter', size: 11 } }
+        labels: { usePointStyle: true, pointStyle: 'circle', boxWidth: 8, color: '#5B6673', font: { family: 'Aptos, Calibri, sans-serif', size: 11 } }
       };
       options.plugins.tooltip.displayColors = true;
       charts.mountChart(rates, {
@@ -798,6 +1050,17 @@
 
   let nightPack = null;
 
+  function pdfLines(doc, text, x, y, width){
+    const lines = doc.splitTextToSize(String(text || ''), width);
+    doc.setFontSize(9);
+    lines.forEach(line => {
+      if (y > 760) { doc.addPage(); y = 48; }
+      doc.text(line, x, y);
+      y += 12;
+    });
+    return y + 4;
+  }
+
   function pdfChart(doc, W, y, title, image){
     if (y + 180 > 760) { doc.addPage(); y = 48; }
     doc.setFont('helvetica', 'bold');
@@ -825,11 +1088,10 @@
     doc.text((state.periodFrom || '') + '  to  ' + (state.periodTo || data.date || ''), 40, y);
     y += 16;
     const occImg = charts.chartImage(canvas => {
-      const options = charts.chartFrame();
+      const options = charts.comboOptions();
       options.animation = false;
       options.responsive = false;
-      options.scales.y.suggestedMax = 100;
-      return new Chart(canvas, { type: 'line', data: { labels: data.labels, datasets: [charts.areaSeries(canvas, 'Occupancy %', occ, '#1e22aa', '30,34,170')] }, options });
+      return new Chart(canvas, { type: 'bar', data: charts.comboOccupancy(canvas, data.labels, occ, data.loyalty || []), options });
     });
     y = pdfChart(doc, W, y, 'Occupancy %', occImg);
     const rateImg = charts.chartImage(canvas => {
@@ -861,7 +1123,7 @@
         options
       });
     });
-    y = pdfChart(doc, W, y, 'Revenue by department', revImg);
+    y = pdfChart(doc, W, y, 'Revenue by Departments', revImg);
     const segImg = charts.chartImage(canvas => {
       const options = charts.chartFrame();
       options.animation = false;
@@ -894,6 +1156,13 @@
     }
     const logo = await pdf.getLogoDataUrl();
     let y = pdf.pdfHeader(doc, W, logo, 'NIGHT MANAGER REPORT');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text('Shift: ' + (data.shiftStart || '—') + '  to  ' + (data.shiftEnd || '—'), 40, y);
+    doc.text('Arrivals: ' + (data.arrivals || '—'), 240, y);
+    doc.text('Departures: ' + (data.departures || '—'), 360, y);
+    doc.text('ALL Loyalty Members: ' + (data.allMembers || '—'), 470, y);
+    y += 16;
     const c = data.calculated || {};
     const m = data.mtd || {};
     const gap = data.segmentGap || {};
@@ -947,17 +1216,9 @@
       ], data.vip.map(v => ({DATE: v.date || '', GOLD: String(v.gold ?? ''), PLAT: String(v.platinum ?? ''), DIA: String(v.diamond ?? ''), STAY: v.stay || ''})));
       y += 8;
     }
-    y = pdf.pdfTable(doc, W, y, [
-      {key:'AREA', label:'AREA', w:220},
-      {key:'REMARK', label:'REMARK', w:280}
-    ], (data.checklist || []).map(item => ({AREA: item.area, REMARK: item.remark || ''})));
-    y += 8;
-    (data.comments || []).forEach((text, i) => {
-      if (y > 760) { doc.addPage(); y = 48; }
-      doc.setFontSize(9);
-      doc.text('Comment ' + (i + 1) + ': ' + (text || '—'), 40, y, {maxWidth: W - 80});
-      y += 16;
-    });
+    if (window.appendNightInspectionPdf) {
+      y = await window.appendNightInspectionPdf(doc, y, data.inspection || {});
+    }
     if (data.submittedBy) {
       doc.setFontSize(9);
       doc.text('Prepared by: ' + data.submittedBy, 40, y + 8);
@@ -990,7 +1251,141 @@
     return cursor.toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' });
   }
 
+  function spanDays(from, to){
+    let count = 0;
+    let cursor = from;
+    while (cursor && cursor <= to && count < 400) {
+      count += 1;
+      cursor = shiftIso(cursor, 1);
+    }
+    return count;
+  }
+
+  function drawPie(id, labels, values, colors){
+    const canvas = document.getElementById(id);
+    const charts = window.NovotelCharts;
+    if (!canvas || !window.Chart || !charts) return;
+    const options = charts.chartFrame();
+    options.scales.x.display = false;
+    options.scales.y.display = false;
+    options.plugins.legend = { display: true, position: 'bottom', labels: { boxWidth: 10, color: '#5B6673', font: { family: 'Aptos, Calibri, sans-serif', size: 11 } } };
+    charts.mountChart(canvas, {
+      type: 'doughnut',
+      data: { labels: labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#fff' }] },
+      options: options
+    });
+  }
+
   let fullPack = null;
+
+  function dashboardStats(duty, night, index, from, to) {
+    const dutyRows = (index || []).filter(row => row.date >= from && row.date <= to);
+    const dutySubmitted = dutyRows.filter(row => row.status === 'submitted').length;
+    const dutyMissing = Math.max(0, spanDays(from, to) - dutySubmitted);
+    const nightRaw = (night && night.occupancy) || [];
+    const nightFiled = nightRaw.filter(value => value != null).length;
+    const nightMissing = Math.max(0, nightRaw.length - nightFiled);
+    const revenue = (night && night.revenue) || {};
+    const adrValues = ((night && night.adr) || []).filter(value => value != null);
+    const avgAdr = adrValues.length ? Math.round(adrValues.reduce((sum, value) => sum + Number(value), 0) / adrValues.length) : null;
+    return {
+      dutySubmitted: dutySubmitted,
+      dutyMissing: dutyMissing,
+      failures: duty ? duty.totalFail : 0,
+      complaints: duty && duty.complaintsList ? duty.complaintsList.length : 0,
+      gss: duty && duty.avgGss != null && duty.avgGss !== '' ? duty.avgGss : '—',
+      avgAdr: avgAdr == null ? '—' : formatMoney(avgAdr),
+      nightFiled: nightFiled,
+      nightMissing: nightMissing,
+      rooms: formatMoney(revenue.rooms || 0),
+      revenue: revenue
+    };
+  }
+
+  const STAT_TONES = {
+    ok: { bg: [234, 242, 236], fg: [79, 122, 91] },
+    danger: { bg: [251, 234, 231], fg: [177, 75, 63] },
+    warn: { bg: [251, 240, 226], fg: [196, 129, 60] },
+    navy: { bg: [238, 240, 251], fg: [30, 34, 170] },
+    teal: { bg: [231, 247, 244], fg: [15, 118, 110] }
+  };
+
+  function dashboardCards(stats) {
+    return [
+      { tone: 'ok', value: stats.dutySubmitted, label: 'Duty reports submitted' },
+      { tone: 'danger', value: stats.dutyMissing, label: 'Duty days not submitted' },
+      { tone: 'warn', value: stats.failures, label: 'Checklist failures' },
+      { tone: 'navy', value: stats.complaints, label: 'Guest complaints' },
+      { tone: 'teal', value: stats.gss, label: 'Avg TrustYou GSS' },
+      { tone: 'teal', value: stats.avgAdr, label: 'Avg ADR' },
+      { tone: 'ok', value: stats.nightFiled, label: 'Night reports submitted' },
+      { tone: 'danger', value: stats.nightMissing, label: 'Nights not submitted' },
+      { tone: 'navy', value: stats.rooms, label: 'Night rooms revenue' }
+    ];
+  }
+
+  function pdfStatCards(doc, W, y, cards) {
+    const gap = 6;
+    const cols = 3;
+    const cardW = (W - 80 - gap * (cols - 1)) / cols;
+    const cardH = 52;
+    const rows = Math.ceil(cards.length / cols);
+    if (y + rows * (cardH + gap) > 780) { doc.addPage(); y = 48; }
+    cards.forEach((card, index) => {
+      const tone = STAT_TONES[card.tone];
+      const col = index % cols;
+      const row = Math.floor(index / cols);
+      const x = 40 + col * (cardW + gap);
+      const top = y + row * (cardH + gap);
+      doc.setFillColor(tone.bg[0], tone.bg[1], tone.bg[2]);
+      doc.roundedRect(x, top, cardW, cardH, 3, 3, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.setTextColor(tone.fg[0], tone.fg[1], tone.fg[2]);
+      doc.text(String(card.value), x + 8, top + 20);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(91, 102, 115);
+      doc.text(doc.splitTextToSize(card.label, cardW - 16).slice(0, 2), x + 8, top + 34);
+    });
+    return y + rows * (cardH + gap) + 6;
+  }
+
+  function pieImage(charts, labels, values, colors) {
+    return charts.chartImage(canvas => {
+      const options = charts.chartFrame();
+      options.animation = false;
+      options.responsive = false;
+      options.scales.x.display = false;
+      options.scales.y.display = false;
+      options.plugins.legend = {
+        display: true,
+        position: 'bottom',
+        labels: { boxWidth: 10, color: '#5B6673', font: { family: 'Aptos, Calibri, sans-serif', size: 13 } }
+      };
+      return new Chart(canvas, {
+        type: 'doughnut',
+        data: { labels: labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#ffffff' }] },
+        options: options
+      });
+    }, 420, 360);
+  }
+
+  function pdfPieRow(doc, W, y, pies) {
+    const gap = 8;
+    const boxW = (W - 80 - gap * (pies.length - 1)) / pies.length;
+    const imgH = boxW * 0.86;
+    if (y + 16 + imgH > 780) { doc.addPage(); y = 48; }
+    pies.forEach((pie, index) => {
+      const x = 40 + index * (boxW + gap);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(28, 43, 57);
+      doc.text(pie.title, x, y);
+      doc.addImage(pie.image, 'JPEG', x, y + 6, boxW, imgH);
+    });
+    return y + 14 + imgH;
+  }
 
   async function loadFullReport(){
     const state = window.state;
@@ -1004,39 +1399,40 @@
     const index = await window.apiFetch('/api/reports/index');
     relabel(night);
     if (!document.getElementById('fullBody')) return;
-    fullPack = { duty: duty, night: night, index: index || [], from: range.from, to: range.to };
+    const stats = dashboardStats(duty, night, index || [], range.from, range.to);
+    const revenue = stats.revenue;
+    fullPack = { duty: duty, night: night, index: index || [], from: range.from, to: range.to, stats: stats };
+    window.currentDutyAnalysis = duty;
     const charts = window.NovotelCharts;
     body.innerHTML = `
       <p class="dmr-sub">${escapeHtml(range.from)} to ${escapeHtml(range.to)}</p>
       <div class="dmr-stat-grid">
-        <div class="dmr-card dmr-stat"><div class="num">${duty ? duty.days : 0}</div><div class="lbl">Duty reports</div></div>
-        <div class="dmr-card dmr-stat"><div class="num">${duty ? duty.totalFail : 0}</div><div class="lbl">Checklist failures</div></div>
-        <div class="dmr-card dmr-stat"><div class="num">${duty ? duty.complaintsList.length : 0}</div><div class="lbl">Complaints</div></div>
-        <div class="dmr-card dmr-stat"><div class="num">${duty ? duty.avgGss : '—'}</div><div class="lbl">Avg GSS</div></div>
-        <div class="dmr-card dmr-stat"><div class="num">${night && night.revenue ? night.revenue.rooms : 0}</div><div class="lbl">Night rooms revenue</div></div>
+        ${dashboardCards(stats).map(card => `<div class="dmr-card dmr-stat tone-${card.tone}"><div class="num">${escapeHtml(String(card.value))}</div><div class="lbl">${escapeHtml(card.label)}</div></div>`).join('')}
       </div>
-      <div class="dmr-card dmr-chart-card"><h3>Duty occupancy %</h3><div class="chart-box"><canvas id="fullOcc"></canvas></div></div>
+      <div class="dash-pies">
+        <div class="dmr-card dmr-chart-card"><h3>Duty reports</h3><div class="chart-box chart-box-pie"><canvas id="pieDuty"></canvas></div></div>
+        <div class="dmr-card dmr-chart-card"><h3>Night reports</h3><div class="chart-box chart-box-pie"><canvas id="pieNight"></canvas></div></div>
+        <div class="dmr-card dmr-chart-card"><h3>Night revenue mix</h3><div class="chart-box chart-box-pie"><canvas id="pieRevenue"></canvas></div></div>
+      </div>
+      ${window.actionItemsHtml ? window.actionItemsHtml((duty && duty.actionItems) || []) : ''}
+      <div class="dmr-card dmr-chart-card"><h3>Duty occupancy and ALL Loyalty Members</h3><div class="chart-box"><canvas id="fullOcc"></canvas></div></div>
+      <div class="dmr-card dmr-chart-card"><h3>TrustYou GSS</h3><div class="chart-box"><canvas id="fullGss"></canvas></div></div>
       <div class="dmr-card dmr-chart-card"><h3>Inspection failures</h3><div class="chart-box"><canvas id="fullFail"></canvas></div></div>
-      <div class="dmr-card dmr-chart-card"><h3>Night occupancy %</h3><div class="chart-box"><canvas id="fullNightOcc"></canvas></div></div>
-      <div class="dmr-card dmr-chart-card"><h3>Night ADR and RevPAR</h3><div class="chart-box"><canvas id="fullRates"></canvas></div></div>
-      <div class="dmr-card dmr-chart-card"><h3>Night revenue</h3><div class="chart-box"><canvas id="fullRevenue"></canvas></div></div>
+      <div class="dmr-card dmr-chart-card"><h3>Night occupancy and ALL Loyalty Members</h3><div class="chart-box"><canvas id="fullNightOcc"></canvas></div></div>
+      <div class="dmr-card dmr-chart-card"><h3>ADR and RevPAR</h3><div class="chart-box"><canvas id="fullRates"></canvas></div></div>
+      <div class="dmr-card dmr-chart-card"><h3>Room revenue</h3><div class="chart-box"><canvas id="fullRooms"></canvas></div></div>
+      <div class="dmr-card dmr-chart-card"><h3>Revenue by Departments</h3><div class="chart-box"><canvas id="fullRevenue"></canvas></div></div>
       <div class="dmr-card dmr-section-card"><h3>Complaints in this period</h3>
         ${duty && duty.complaintsList.length ? duty.complaintsList.slice(0, 8).map(item => `<div class="dmr-recur-item"><span>${escapeHtml(item.date)} — ${escapeHtml(item.complaint || '')}</span></div>`).join('') : '<p>No complaints in this period.</p>'}
       </div>
-      <button type="button" class="dmr-btn dmr-btn-primary" id="fullPdfBtn">Export full PDF</button>`;
+      <button type="button" class="dmr-btn dmr-btn-primary" id="fullPdfBtn">Export dashboard PDF</button>`;
     if (!charts || !window.occupancySeries) {
       const btn = document.getElementById('fullPdfBtn');
       if (btn) btn.onclick = () => exportFullPdf();
       return;
     }
     const dutySeries = window.occupancySeries(index || [], range.from, range.to);
-    const occOptions = charts.chartFrame();
-    occOptions.scales.y.suggestedMax = 100;
-    charts.mountChart(document.getElementById('fullOcc'), {
-      type: 'line',
-      data: { labels: dutySeries.labels, datasets: [charts.areaSeries(document.getElementById('fullOcc'), 'Occupancy %', dutySeries.values, '#1e22aa', '30,34,170')] },
-      options: occOptions
-    });
+    if (window.drawOccupancyChart) window.drawOccupancyChart('fullOcc', dutySeries);
     const fails = (duty && duty.topSections && duty.topSections.length) ? duty.topSections : [['No failures', 0]];
     const failOptions = charts.chartFrame();
     charts.mountChart(document.getElementById('fullFail'), {
@@ -1045,25 +1441,17 @@
       options: failOptions
     });
     const nightOcc = ((night && night.occupancy) || []).map(value => value == null ? 0 : value);
-    const nightOccOptions = charts.chartFrame();
-    nightOccOptions.scales.y.suggestedMax = 100;
-    charts.mountChart(document.getElementById('fullNightOcc'), {
-      type: 'line',
-      data: { labels: (night && night.labels) || [], datasets: [charts.areaSeries(document.getElementById('fullNightOcc'), 'Occupancy %', nightOcc, '#14b8a6', '20,184,166')] },
-      options: nightOccOptions
-    });
-    const rateOptions = charts.chartFrame();
-    rateOptions.plugins.legend = { display: true, position: 'top', align: 'end', labels: { usePointStyle: true, boxWidth: 8, color: '#5B6673', font: { family: 'Inter', size: 11 } } };
-    const rates = document.getElementById('fullRates');
-    charts.mountChart(rates, {
-      type: 'line',
-      data: { labels: (night && night.labels) || [], datasets: [
-        charts.areaSeries(rates, 'ADR', (night && night.adr) || [], '#14b8a6', '20,184,166'),
-        charts.areaSeries(rates, 'RevPAR', (night && night.revpar) || [], '#1e22aa', '30,34,170')
-      ] },
-      options: rateOptions
-    });
-    const revenue = (night && night.revenue) || {};
+    if (window.drawOccupancyChart) {
+      window.drawOccupancyChart('fullNightOcc', { labels: (night && night.labels) || [], values: nightOcc, loyalty: (night && night.loyalty) || [] });
+    }
+    if (window.drawTrend) {
+      window.drawTrend('fullGss', dutySeries.labels, (duty && duty.gss) || [], 'TrustYou GSS', '#14b8a6', '20,184,166', true);
+      window.drawTrend('fullRooms', (night && night.labels) || [], (night && night.roomsSeries) || [], 'Room revenue', '#1e22aa', '30,34,170', false);
+    }
+    drawRatesChart('fullRates', (night && night.labels) || [], (night && night.adr) || [], (night && night.revpar) || []);
+    drawPie('pieDuty', ['Submitted', 'Not submitted'], [stats.dutySubmitted, stats.dutyMissing], ['#4F7A5B', '#E7D3D0']);
+    drawPie('pieNight', ['Submitted', 'Not submitted'], [stats.nightFiled, stats.nightMissing], ['#0f766e', '#E7D3D0']);
+    drawPie('pieRevenue', ['Rooms', 'F&B', 'M&E', 'OOD', 'Other'], [revenue.rooms || 0, revenue.fb || 0, revenue.me || 0, revenue.ood || 0, revenue.other || 0], ['#1e22aa', '#14b8a6', '#7c6bf2', '#A8814F', '#8aa0b2']);
     const revOptions = charts.chartFrame();
     charts.mountChart(document.getElementById('fullRevenue'), {
       type: 'bar',
@@ -1088,19 +1476,37 @@
     const logo = await pdf.getLogoDataUrl();
     let y = pdf.pdfHeader(doc, W, logo, 'FULL REPORT');
     doc.setFontSize(11);
+    doc.setTextColor(35, 48, 61);
     doc.text(pack.from + '  to  ' + pack.to, 40, y);
-    y += 18;
-    const duty = pack.duty || {};
-    doc.setFontSize(10);
-    doc.text('Duty reports ' + (duty.days || 0) + '   Failures ' + (duty.totalFail || 0) + '   Complaints ' + ((duty.complaintsList || []).length) + '   GSS ' + (duty.avgGss || '—'), 40, y);
     y += 16;
+    const duty = pack.duty || {};
+    const night = pack.night || {};
+    const stats = pack.stats || dashboardStats(duty, night, pack.index, pack.from, pack.to);
+    y = pdfStatCards(doc, W, y, dashboardCards(stats));
+    const revenueMix = stats.revenue || {};
+    y = pdfPieRow(doc, W, y, [
+      { title: 'Duty reports', image: pieImage(charts, ['Submitted', 'Not submitted'], [stats.dutySubmitted, stats.dutyMissing], ['#4F7A5B', '#E7D3D0']) },
+      { title: 'Night reports', image: pieImage(charts, ['Submitted', 'Not submitted'], [stats.nightFiled, stats.nightMissing], ['#0f766e', '#E7D3D0']) },
+      { title: 'Night revenue mix', image: pieImage(charts, ['Rooms', 'F&B', 'M&E', 'OOD', 'Other'], [revenueMix.rooms || 0, revenueMix.fb || 0, revenueMix.me || 0, revenueMix.ood || 0, revenueMix.other || 0], ['#1e22aa', '#14b8a6', '#7c6bf2', '#A8814F', '#8aa0b2']) }
+    ]);
+    y += 8;
     const series = window.occupancySeries(pack.index, pack.from, pack.to);
     const occImg = charts.chartImage(canvas => {
-      const options = charts.chartFrame();
-      options.animation = false; options.responsive = false; options.scales.y.suggestedMax = 100;
-      return new Chart(canvas, { type: 'line', data: { labels: series.labels, datasets: [charts.areaSeries(canvas, 'Occupancy %', series.values, '#1e22aa', '30,34,170')] }, options });
+      const options = charts.comboOptions();
+      options.animation = false;
+      options.responsive = false;
+      return new Chart(canvas, { type: 'bar', data: charts.comboOccupancy(canvas, series.labels, series.values, series.loyalty), options });
     });
     y = pdfChart(doc, W, y, 'Duty occupancy %', occImg);
+    const gssImg = charts.chartImage(canvas => {
+      const options = charts.chartFrame();
+      options.animation = false;
+      options.responsive = false;
+      const series = charts.areaSeries(canvas, 'TrustYou GSS', duty.gss || [], '#14b8a6', '20,184,166');
+      series.spanGaps = true;
+      return new Chart(canvas, { type: 'line', data: { labels: window.occupancySeries([], pack.from, pack.to).labels, datasets: [series] }, options });
+    });
+    y = pdfChart(doc, W, y, 'TrustYou GSS', gssImg);
     const fails = (duty.topSections && duty.topSections.length) ? duty.topSections : [['No failures', 0]];
     const failImg = charts.chartImage(canvas => {
       const options = charts.chartFrame();
@@ -1108,45 +1514,57 @@
       return new Chart(canvas, { type: 'bar', data: { labels: fails.map(item => item[0]), datasets: [{ data: fails.map(item => item[1]), backgroundColor: '#7c6bf2', borderRadius: 8 }] }, options });
     });
     y = pdfChart(doc, W, y, 'Inspection failures', failImg);
-    const night = pack.night || {};
     const nightOcc = (night.occupancy || []).map(value => value == null ? 0 : value);
     const nightImg = charts.chartImage(canvas => {
-      const options = charts.chartFrame();
-      options.animation = false; options.responsive = false; options.scales.y.suggestedMax = 100;
-      return new Chart(canvas, { type: 'line', data: { labels: night.labels || [], datasets: [charts.areaSeries(canvas, 'Occupancy %', nightOcc, '#14b8a6', '20,184,166')] }, options });
+      const options = charts.comboOptions();
+      options.animation = false;
+      options.responsive = false;
+      return new Chart(canvas, { type: 'bar', data: charts.comboOccupancy(canvas, night.labels || [], nightOcc, night.loyalty || []), options });
     });
     y = pdfChart(doc, W, y, 'Night occupancy %', nightImg);
     const rateImg = charts.chartImage(canvas => {
       const options = charts.chartFrame();
-      options.animation = false; options.responsive = false; options.plugins.legend.display = true;
-      return new Chart(canvas, { type: 'line', data: { labels: night.labels || [], datasets: [
-        charts.areaSeries(canvas, 'ADR', night.adr || [], '#14b8a6', '20,184,166'),
-        charts.areaSeries(canvas, 'RevPAR', night.revpar || [], '#1e22aa', '30,34,170')
-      ] }, options });
+      options.animation = false;
+      options.responsive = false;
+      options.plugins.legend.display = true;
+      const adr = charts.areaSeries(canvas, 'ADR', night.adr || [], '#14b8a6', '20,184,166');
+      const revpar = charts.areaSeries(canvas, 'RevPAR', night.revpar || [], '#1e22aa', '30,34,170');
+      adr.spanGaps = true;
+      revpar.spanGaps = true;
+      return new Chart(canvas, { type: 'line', data: { labels: night.labels || [], datasets: [adr, revpar] }, options });
     });
-    y = pdfChart(doc, W, y, 'Night ADR and RevPAR', rateImg);
+    y = pdfChart(doc, W, y, 'ADR and RevPAR', rateImg);
+    const roomsImg = charts.chartImage(canvas => {
+      const options = charts.chartFrame();
+      options.animation = false;
+      options.responsive = false;
+      return new Chart(canvas, { type: 'line', data: { labels: night.labels || [], datasets: [charts.areaSeries(canvas, 'Room revenue', night.roomsSeries || [], '#1e22aa', '30,34,170')] }, options });
+    });
+    y = pdfChart(doc, W, y, 'Room revenue', roomsImg);
     const revenue = night.revenue || {};
     const revImg = charts.chartImage(canvas => {
       const options = charts.chartFrame();
       options.animation = false; options.responsive = false;
       return new Chart(canvas, { type: 'bar', data: { labels: ['Rooms', 'F&B', 'M&E', 'OOD', 'Other'], datasets: [{ data: [revenue.rooms || 0, revenue.fb || 0, revenue.me || 0, revenue.ood || 0, revenue.other || 0], backgroundColor: ['#1e22aa', '#14b8a6', '#7c6bf2', '#A8814F', '#8aa0b2'], borderRadius: 8 }] }, options });
     });
-    y = pdfChart(doc, W, y, 'Night revenue', revImg);
+    y = pdfChart(doc, W, y, 'Revenue by Departments', revImg);
     if ((duty.complaintsList || []).length) {
       if (y > 700) { doc.addPage(); y = 48; }
       doc.setFontSize(11);
       doc.text('Guest complaints', 40, y);
       y += 14;
       duty.complaintsList.slice(0, 12).forEach(item => {
-        if (y > 760) { doc.addPage(); y = 48; }
-        doc.setFontSize(9);
-        doc.text((item.date || '') + '  ' + (item.complaint || ''), 40, y, { maxWidth: W - 80 });
-        y += 14;
+        const action = item.action ? '  Action: ' + item.action : '';
+        y = pdfLines(doc, (item.date || '') + '  ' + (item.complaint || '') + action, 40, y, W - 80);
       });
     }
-    pdf.addPdfFooter(doc, W, 'Novotel — Full Report');
+    pdf.addPdfFooter(doc, W, 'Novotel — Dashboard');
     doc.save('novotel-full-report-' + pack.from + '-to-' + pack.to + '.pdf');
   }
 
   window.renderNightSection = renderNightSection;
+  window.reloadFullReport = loadFullReport;
+  window.exportDashboardPdf = exportFullPdf;
+  window.syncNightDraft = syncDraftFromDom;
+  window.applyNightChecklistPhoto = applyNightChecklistPhoto;
 })();

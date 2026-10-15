@@ -1,8 +1,8 @@
 from app.auth import can_write
 
-def test_staff_writes_duty_only():
+def test_staff_covers_duty_and_night():
     assert can_write("staff", "duty") is True
-    assert can_write("staff", "night") is False
+    assert can_write("staff", "night") is True
 
 def test_night_writes_night_only():
     assert can_write("night", "night") is True

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Novotel — Duty Manager Daily Report</title>
-  <link rel="stylesheet" href="/assets/style.css?v=4">
+  <title>Novotel Medina - Daily Reports</title>
+  <link rel="stylesheet" href="/assets/style.css?v=14">
   <link rel="icon" href="/assets/novotel-logo-blue.png">
 </head>
 <body>
@@ -40,8 +40,10 @@
         <span id="syncText">Connected</span>
       </div>
 
+      <button class="dmr-navbtn" data-section="full" data-view="today">Dashboard</button>
+
       <div class="nav-section">Duty Manager</div>
-      <button class="dmr-navbtn active" data-section="duty" data-view="today">Today's Report</button>
+      <button class="dmr-navbtn" data-section="duty" data-view="today">Today's Report</button>
       <button class="dmr-navbtn" data-section="duty" data-view="archive">Archive</button>
       <button class="dmr-navbtn" data-section="duty" data-view="analysis">Analysis</button>
       <div class="nav-section">Night Manager</div>
@@ -49,7 +51,6 @@
       <button class="dmr-navbtn" data-section="night" data-view="archive">Archive</button>
       <button class="dmr-navbtn" data-section="night" data-view="analysis">Analysis</button>
       <div class="nav-section">General</div>
-      <button class="dmr-navbtn" data-section="full" data-view="today">Full Report</button>
       <button class="dmr-navbtn" data-view="users" id="usersNavBtn" style="display:none;">Users</button>
 
       <div class="dmr-nav-foot">
@@ -70,7 +71,7 @@
   <!-- Third-party CDN libraries -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="/assets/chart.umd.min.js"></script>
-  <script src="/assets/app.js?v=5"></script>
-  <script src="/assets/night.js?v=5"></script>
+  <script src="/assets/app.js?v=17"></script>
+  <script src="/assets/night.js?v=24"></script>
 </body>
 </html>

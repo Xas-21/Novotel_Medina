@@ -9,6 +9,51 @@ from app.models import NoteCreate, NoteUpdate, NoteResponse
 from app.auth import get_current_user, TokenData
 from app.ws import ws_manager
 
+async def record_note_event(db: aiosqlite.Connection, note_id: str, status_value: str, actor: str, at: str):
+    await db.execute(
+        "INSERT INTO note_events (id, note_id, status, actor, created_at) VALUES (?, ?, ?, ?, ?)",
+        (f"evt_{uuid.uuid4().hex[:12]}", note_id, status_value, actor or "", at),
+    )
+
+async def timelines_for(db: aiosqlite.Connection, note_ids: list):
+    if not note_ids:
+        return {}
+    marks = ",".join("?" for _ in note_ids)
+    cursor = await db.execute(
+        f"SELECT note_id, status, actor, created_at FROM note_events WHERE note_id IN ({marks}) ORDER BY created_at ASC",
+        note_ids,
+    )
+    grouped = {}
+    for row in await cursor.fetchall():
+        grouped.setdefault(row["note_id"], []).append({
+            "status": row["status"],
+            "at": row["created_at"] or "",
+            "actor": row["actor"] or "",
+        })
+    return grouped
+
+def note_payload(note: dict, events: list, carried: bool = False):
+    timeline = events or [{
+        "status": note.get("status") or "open",
+        "at": note.get("created_at") or "",
+        "actor": note.get("manager") or "",
+    }]
+    return {
+        "id": note["id"],
+        "report_date": note["report_date"],
+        "date": note["report_date"],
+        "department": note["department"],
+        "priority": note["priority"],
+        "text": note["text"],
+        "photo_url": note["photo_url"],
+        "manager": note["manager"],
+        "time": note["time"],
+        "status": note["status"],
+        "created_at": note.get("created_at"),
+        "carried": carried,
+        "timeline": timeline,
+    }
+
 router = APIRouter(prefix="/api/notes", tags=["notes"])
 logger = logging.getLogger("novotel.notes")
 
@@ -40,6 +85,7 @@ async def create_note(
         note_id, date, data.department, data.priority, data.text,
         data.photo_url, manager_name, time_str, data.status, now.isoformat()
     ))
+    await record_note_event(db, note_id, data.status, manager_name, now.isoformat())
     await db.commit()
     
     note_obj = {
@@ -52,7 +98,8 @@ async def create_note(
         "manager": manager_name,
         "time": time_str,
         "status": data.status,
-        "created_at": now.isoformat()
+        "created_at": now.isoformat(),
+        "timeline": [{"status": data.status, "at": now.isoformat(), "actor": manager_name}],
     }
     
     await ws_manager.broadcast({
@@ -77,7 +124,8 @@ async def update_note(
     
     updates = []
     params = []
-    if data.status is not None:
+    status_changed = data.status is not None and data.status != note["status"]
+    if status_changed:
         updates.append("status = ?")
         params.append(data.status)
     if data.priority is not None:
@@ -87,10 +135,16 @@ async def update_note(
         updates.append("text = ?")
         params.append(data.text)
         
+    actor = user.full_name if user else "Manager"
+    now = datetime.utcnow().isoformat()
     if updates:
         params.append(note_id)
         await db.execute(f"UPDATE notes SET {', '.join(updates)} WHERE id = ?", tuple(params))
+    if status_changed:
+        await record_note_event(db, note_id, data.status, actor, now)
+    if updates or status_changed:
         await db.commit()
+    timeline = (await timelines_for(db, [note_id])).get(note_id) or []
     
     await ws_manager.broadcast({
         "event": "NOTE_UPDATED",
@@ -98,10 +152,10 @@ async def update_note(
         "noteId": note_id,
         "status": data.status,
         "priority": data.priority,
-        "updatedBy": user.full_name if user else "Manager"
+        "updatedBy": actor
     })
-    
-    return {"success": True, "id": note_id}
+
+    return {"success": True, "id": note_id, "status": data.status or note["status"], "timeline": timeline}
 
 @router.delete("/{note_id}")
 async def delete_note(

@@ -59,6 +59,7 @@
     modalImg: null,
     confirmDeleteId: null,
     confirmDeleteReport: null,
+    actionPopup: false,
     photoTarget: null,
     toast: null,
     wsConnected: false
@@ -72,8 +73,7 @@
   }
 
   function canWrite(role, section){
-    if (role === 'admin') return section === 'duty' || section === 'night';
-    if (role === 'staff') return section === 'duty';
+    if (role === 'admin' || role === 'staff') return section === 'duty' || section === 'night';
     if (role === 'night') return section === 'night';
     return false;
   }
@@ -150,6 +150,11 @@
     return 122;
   }
 
+  function cafeteriaHeading(meal, time) {
+    const parts = [meal, time].filter(part => part);
+    return 'Staff Cafeteria Inspection' + (parts.length ? ' — ' + parts.join(' · ') : '');
+  }
+
   function pdfSectionHeading(doc, W, y, text) {
     if (y + 34 > 780) { doc.addPage(); y = 45; }
     doc.setFillColor(...NOVOTEL.brandBlue);
@@ -160,6 +165,49 @@
     doc.setFont('helvetica','bold'); doc.setFontSize(10);
     doc.text(text.toUpperCase(), 51, y + 13.5);
     return y + 20;
+  }
+
+  async function writeNotesPdf(doc, W, y, notes) {
+    y = pdfSectionHeading(doc, W, y, 'Detailed Notes & Observations');
+    y += 18;
+    for (const n of notes) {
+      const from = n.carried ? '  |  From ' + (n.report_date || n.date || '') : '';
+      const head = `${n.time || ''}  |  ${n.department || ''}  |  ${(n.priority || '').toUpperCase()}  |  ${(n.status || '').toUpperCase()}${from}`;
+      const headLines = doc.splitTextToSize(head, W - 80);
+      const body = `${n.manager || 'Duty Manager'}: ${n.text || ''}`;
+      const bodyLines = doc.splitTextToSize(body, W - 80);
+      const events = (n.timeline && n.timeline.length) ? n.timeline : [{ status: n.status || 'open', at: n.created_at || n.time || '', actor: n.manager || '' }];
+      const eventLines = events.map(ev => doc.splitTextToSize(`${formatWhen(ev.at)} — ${statusLabel(ev.status)} — ${ev.actor || ''}`, W - 96));
+      const block = 16 + headLines.length * 12 + bodyLines.length * 12 + eventLines.reduce((sum, lines) => sum + lines.length * 11, 0) + 14;
+      if (y + Math.min(block, 80) > 780) { doc.addPage(); y = 45; }
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(...NOVOTEL.navy);
+      doc.text(headLines, 40, y);
+      y += headLines.length * 12 + 4;
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...NOVOTEL.ink);
+      doc.text(bodyLines, 40, y);
+      y += bodyLines.length * 12 + 4;
+      doc.setFontSize(8);
+      doc.setTextColor(...NOVOTEL.inkSoft);
+      doc.text('Timeline', 40, y);
+      y += 12;
+      eventLines.forEach(lines => {
+        if (y + lines.length * 11 > 780) { doc.addPage(); y = 45; }
+        doc.text(lines, 52, y);
+        y += lines.length * 11 + 2;
+      });
+      if (n.photo_url) {
+        const img = await loadImg(n.photo_url);
+        if (img) {
+          if (y + 80 > 780) { doc.addPage(); y = 45; }
+          try { doc.addImage(img, 'JPEG', 40, y, 86, 64); y += 72; } catch (e) {}
+        }
+      }
+      y += 12;
+    }
+    return y;
   }
 
   function pdfTable(doc, W, y, cols, rows) {
@@ -271,13 +319,15 @@
       inHouse: state.report.inHouse || "",
       allMembers: state.report.allMembers || "",
       cafeteriaMealTime: state.report.cafeteriaMealTime || "",
+      cafeteriaTime: state.report.cafeteriaTime || "",
       checklists: state.report.checklists,
       cafeteriaItems: state.report.cafeteriaItems,
       roomsInspection: state.report.roomsInspection,
       courtesyCalls: state.report.courtesyCalls,
       trustYou: state.report.trustYou,
       complaints: state.report.complaints,
-      incidents: state.report.incidents
+      incidents: state.report.incidents,
+      generalComments: state.report.generalComments || []
     };
     await apiFetch(`/api/reports`, {
       method: 'POST',
@@ -350,7 +400,7 @@
   // ---------- Auth / Login ----------
   function pageLabel() {
     if (state.view === 'users') return 'Users';
-    if (state.section === 'full') return 'Full Report';
+    if (state.section === 'full') return 'Dashboard';
     const section = state.section === 'night' ? 'Night' : 'Duty';
     const view = { today: "Today's Report", archive: 'Archive', analysis: 'Analysis' }[state.view] || '';
     return view ? section + ' · ' + view : section;
@@ -463,7 +513,7 @@
   async function enterApp() {
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('dmrRoot').style.display = 'flex';
-    state.section = (state.user && state.user.role === 'night') ? 'night' : 'duty';
+    state.section = 'full';
     state.view = 'today';
     initWebSocket();
     state.loading = true;
@@ -581,6 +631,32 @@
       };
     }
 
+    if (state.actionPopup) {
+      const items = actionItemsNow().filter(n => n.status !== 'closed');
+      const byDate = new Map();
+      items.forEach(n => {
+        const date = n.date || n.report_date;
+        if (!byDate.has(date)) byDate.set(date, { count: 0, submitted: n.reportStatus === 'submitted' || n.carried });
+        byDate.get(date).count += 1;
+      });
+      const bg = document.createElement('div');
+      bg.className = 'dmr-modal-bg';
+      const rows = Array.from(byDate.entries());
+      bg.innerHTML = `
+        <div class="dmr-dialog dmr-dialog-wide">
+          <h3>Open action items</h3>
+          <p>Submitted reports that still have an open or in-progress note. Review opens that report so you can change the status.</p>
+          ${rows.length ? rows.map(([date, info]) => `
+            <div class="dmr-action-pop">
+              <div><b>${escapeHtml(fmtDate(date))}</b><div class="dmr-sub">${info.count} still open${info.submitted ? ' · Submitted' : ''}</div></div>
+              <button type="button" class="dmr-btn dmr-btn-primary dmr-btn-sm" data-review-date="${escapeHtml(date)}">Review</button>
+            </div>`).join('') : '<p>No open action items.</p>'}
+          <div class="dmr-dialog-actions"><button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" id="actionPopClose">Close</button></div>
+        </div>`;
+      document.getElementById('dmrRoot').appendChild(bg);
+      document.getElementById('actionPopClose').onclick = () => { state.actionPopup = false; renderOverlays(); };
+    }
+
     if (state.toast) {
       const t = document.createElement('div');
       t.className = 'dmr-toast';
@@ -594,7 +670,7 @@
     const dutyWritable = canWrite(state.user && state.user.role, 'duty');
     return `
     <div class="dmr-headline">
-      <h1>Duty Manager Round</h1>
+      <h1>Duty Manager Report</h1>
       <input type="date" id="dateInput" class="dmr-btn-ghost dmr-btn" style="padding:7px 12px;" value="${state.selectedDate}">
     </div>
     <div class="dmr-sub">
@@ -664,9 +740,9 @@
       <details class="dmr-acc" data-acc="cafeteria" ${state.openAcc.has('cafeteria')?'open':''}>
         <summary><span>Staff Cafeteria Audit</span><span class="arrow">▾</span></summary>
         <div class="dmr-acc-body">
-          <div class="dmr-field" style="margin-top:14px;">
-            <label>Meal / Inspection Time</label>
-            <input type="text" data-gf="cafeteriaMealTime" value="${escapeHtml(r.cafeteriaMealTime)}" placeholder="e.g. Lunch Round (1:30 PM)">
+          <div class="dmr-row" style="margin-top:14px;">
+            <div class="dmr-field"><label>Meal</label><input type="text" data-gf="cafeteriaMealTime" value="${escapeHtml(r.cafeteriaMealTime || '')}" placeholder="e.g. Lunch"></div>
+            <div class="dmr-field"><label>Time</label><input type="time" data-gf="cafeteriaTime" value="${escapeHtml(r.cafeteriaTime || '')}"></div>
           </div>
           ${CAFETERIA_ITEMS.map((label, idx) => checklistRowHtml('cafeteriaItems', idx, label, null, r.cafeteriaItems[idx] || {status:null, comment:''})).join('')}
         </div>
@@ -678,13 +754,18 @@
           {key:'action', ph:'Action taken by Duty Manager', type:'textarea', w:2}
         ])}
 
-      ${renderDynAcc('incidents', 'Incidents / General Comments', r.incidents, [
-          {key:'description', ph:'Incident description / notable observation', type:'textarea', w:3},
+      ${renderDynAcc('incidents', 'Incidents', r.incidents, [
+          {key:'description', ph:'Incident description', type:'textarea', w:3},
+          {key:'time', ph:'Time', type:'time', w:1}
+        ])}
+
+      ${renderDynAcc('generalComments', 'General Comments', r.generalComments || [], [
+          {key:'comment', ph:'General comment', type:'textarea', w:3},
           {key:'time', ph:'Time', type:'time', w:1}
         ])}
 
       <details class="dmr-acc" data-acc="notes" ${state.openAcc.has('notes')?'open':''}>
-        <summary><span>Additional Notes & Photo Documentation</span><span class="arrow">▾</span></summary>
+        <summary><span>Action Items</span><span class="arrow">▾</span></summary>
         <div class="dmr-acc-body">
           <div style="padding-top:14px;">
             <div class="dmr-row">
@@ -703,8 +784,8 @@
               <button class="dmr-btn dmr-btn-primary" id="addNoteBtn" style="height:40px;">+ Add Note</button>
             </div>
           </div>
-          ${r.notes.length === 0 ? '<div class="dmr-empty" style="padding:24px;">No additional notes logged for this shift.</div>' :
-            `<div class="dmr-timeline" style="margin-top:14px;">${r.notes.map(n => entryHtml(n)).join('')}</div>`}
+          ${(r.notes || []).length === 0 ? '<div class="dmr-empty" style="padding:24px;">No additional notes logged for this shift.</div>' :
+            `<div class="dmr-timeline" style="margin-top:14px;">${(r.notes || []).some(n => n.carried) ? '<div class="dmr-sub">Still open or in progress from earlier submitted reports stay on this report until they are closed.</div>' : ''}${(r.notes || []).map(n => entryHtml(n)).join('')}</div>`}
         </div>
       </details>
     </div>
@@ -801,29 +882,81 @@
     </details>`;
   }
 
+  function statusLabel(value) {
+    const meta = STATUSES.find(s => s.v === value);
+    return meta ? meta.label : (value || '');
+  }
+
+  function formatWhen(iso) {
+    if (!iso) return '';
+    const dt = new Date(iso);
+    if (Number.isNaN(dt.getTime())) return String(iso).replace('T', ' ').slice(0, 16);
+    return dt.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' });
+  }
+
+  function noteTimelineHtml(n) {
+    const events = (n.timeline && n.timeline.length) ? n.timeline : [{ status: n.status || 'open', at: n.created_at || '', actor: n.manager || '' }];
+    return `<div class="dmr-note-timeline">${events.map(ev => `<div>${escapeHtml(formatWhen(ev.at))} — ${escapeHtml(statusLabel(ev.status))} — ${escapeHtml(ev.actor || '')}</div>`).join('')}</div>`;
+  }
+
   function entryHtml(n) {
     const pr = priorityMeta(n.priority), st = statusMeta(n.status);
+    const dutyWritable = canWrite(state.user && state.user.role, 'duty');
     return `
     <div class="dmr-entry" data-id="${n.id}">
       <div class="dmr-card dmr-entry-card">
         <div class="dmr-entry-top">
-          <div><span class="dmr-tag dmr-tag-dept">${escapeHtml(n.department)}</span><span class="dmr-tag ${pr.cls}">${pr.label}</span></div>
+          <div><span class="dmr-tag dmr-tag-dept">${escapeHtml(n.department)}</span><span class="dmr-tag ${pr.cls}">${pr.label}</span>${n.carried ? `<span class="dmr-tag dmr-tag-follow">From ${escapeHtml(n.report_date || n.date || '')}</span>` : ''}</div>
           <div class="dmr-entry-time">${escapeHtml(n.time)}</div>
         </div>
         <div class="dmr-entry-text">${escapeHtml(n.text)}</div>
+        ${noteTimelineHtml(n)}
         <div class="dmr-entry-bottom">
           <div style="display:flex;align-items:center;gap:12px;">
             <span class="dmr-manager">Logged by: <b>${escapeHtml(n.manager)}</b></span>
             ${n.photo_url ? `<img src="${n.photo_url}" class="dmr-thumb" data-photo="${n.photo_url}">` : ''}
           </div>
           <div style="display:flex;align-items:center;gap:8px;">
-            <select class="dmr-status-select ${st.cls}" data-status-id="${n.id}">
+            <select class="dmr-status-select ${st.cls}" data-status-id="${n.id}" ${dutyWritable ? '' : 'disabled'}>
               ${STATUSES.map(s => `<option value="${s.v}" ${s.v===n.status?'selected':''}>${s.label}</option>`).join('')}
             </select>
-            <button class="dmr-del" data-del="${n.id}">✕</button>
+            ${n.carried || !dutyWritable ? '' : `<button class="dmr-del" data-del="${n.id}">✕</button>`}
           </div>
         </div>
       </div>
+    </div>`;
+  }
+
+  function actionItemsHtml(items) {
+    const rows = items || [];
+    const writable = canWrite(state.user && state.user.role, 'duty');
+    if (!rows.length) {
+      return `<div class="dmr-card dmr-section-card"><h3>Action items</h3><p>No action items in this period.</p></div>`;
+    }
+    return `
+    <div class="dmr-card dmr-section-card">
+      <h3>Action items</h3>
+      ${rows.map(item => {
+        const st = statusMeta(item.status);
+        return `
+        <details class="dmr-action">
+          <summary>
+            <span>${escapeHtml(item.date || item.report_date || '')} — ${escapeHtml(item.department || '')} — ${escapeHtml(item.text || '')}</span>
+            <span class="dmr-tag ${st.cls}">${st.label}</span>
+          </summary>
+          <div class="dmr-action-body">
+            <p>${escapeHtml(item.text || '')}</p>
+            <div class="dmr-sub">Logged by ${escapeHtml(item.manager || '')}${item.carried ? ' · Still open from an earlier report' : ''}</div>
+            ${noteTimelineHtml(item)}
+            <div class="dmr-action-tools">
+              <select data-action-status="${escapeHtml(item.id)}" ${writable ? '' : 'disabled'}>
+                ${STATUSES.map(s => `<option value="${s.v}" ${s.v===item.status?'selected':''}>${s.label}</option>`).join('')}
+              </select>
+              <button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-review-date="${escapeHtml(item.date || item.report_date || '')}">Open report</button>
+            </div>
+          </div>
+        </details>`;
+      }).join('')}
     </div>`;
   }
 
@@ -850,24 +983,35 @@
     return Number.isFinite(n) ? n : null;
   }
 
+  function loyaltyNumber(text){
+    if (text == null || text === '') return 0;
+    const n = Number(String(text).replace(/,/g, '').trim());
+    return Number.isFinite(n) ? n : 0;
+  }
+
   function occupancySeries(rows, startIso, endIso){
-    const byDate = new Map(rows.map(r => [r.date, parseOccupancy(r.occupancy)]));
+    const byDate = new Map(rows.map(r => [r.date, {
+      occ: parseOccupancy(r.occupancy),
+      loyalty: loyaltyNumber(r.allMembers)
+    }]));
     const labels = [];
     const values = [];
+    const loyalty = [];
     let cursor = new Date(startIso + 'T00:00:00');
     const end = new Date(endIso + 'T00:00:00');
+    const spans = startIso.slice(0, 7) !== endIso.slice(0, 7);
     while (cursor <= end) {
       const iso = cursor.toLocaleDateString('en-CA', {timeZone:'Asia/Riyadh'});
-      const spans = startIso.slice(0, 7) !== endIso.slice(0, 7);
       const label = spans
         ? new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
         : iso.slice(8);
       labels.push(label);
       const parsed = byDate.has(iso) ? byDate.get(iso) : null;
-      values.push(parsed == null ? 0 : parsed);
+      values.push(parsed && parsed.occ != null ? parsed.occ : 0);
+      loyalty.push(parsed ? parsed.loyalty : 0);
       cursor.setDate(cursor.getDate() + 1);
     }
-    return {labels, values};
+    return {labels, values, loyalty};
   }
 
   function monthLastDay(iso){
@@ -887,9 +1031,10 @@
     let to = state.periodTo || state.selectedDate || today;
     if (to > today) to = today;
     state.periodMode = mode;
-    if (mode === 'day') {
-      state.periodFrom = to;
-      state.periodTo = to;
+    if (mode === 'day' || mode === 'today') {
+      state.periodMode = 'today';
+      state.periodFrom = today;
+      state.periodTo = today;
     } else if (mode === 'week') {
       state.periodTo = to;
       state.periodFrom = shiftIso(to, -6);
@@ -916,7 +1061,7 @@
     const button = (id, label) => `<button type="button" class="dmr-btn ${mode === id ? 'dmr-btn-primary' : 'dmr-btn-ghost'}" data-period="${id}">${label}</button>`;
     return `
       <div class="dmr-toolbar">
-        ${button('day', 'Day')}
+        ${button('today', 'Today')}
         ${button('week', 'Week')}
         ${button('month', 'Month')}
         ${button('ytd', 'YTD')}
@@ -944,7 +1089,8 @@
   }
 
   function chartFrame(){
-    const tick = { color: '#5B6673', font: { family: 'Inter', size: 11 } };
+    paintChartsWhite();
+    const tick = { color: '#5B6673', font: { family: 'Aptos, Calibri, sans-serif', size: 11 } };
     return {
       responsive: true,
       maintainAspectRatio: false,
@@ -953,8 +1099,8 @@
         legend: { display: false },
         tooltip: {
           backgroundColor: '#1C2B39',
-          titleFont: { family: 'Inter', size: 12 },
-          bodyFont: { family: 'Inter', size: 12 },
+          titleFont: { family: 'Aptos, Calibri, sans-serif', size: 12 },
+          bodyFont: { family: 'Aptos, Calibri, sans-serif', size: 12 },
           padding: 10,
           cornerRadius: 8,
           displayColors: false
@@ -996,15 +1142,71 @@
     return canvas._chart;
   }
 
+  function comboOptions(){
+    const options = chartFrame();
+    options.scales.y.suggestedMax = 100;
+    options.scales.y.title = { display: true, text: 'Occupancy %', color: '#1e22aa', font: { family: 'Aptos, Calibri, sans-serif', size: 11 } };
+    options.scales.y1 = {
+      position: 'right',
+      beginAtZero: true,
+      border: { display: false },
+      grid: { display: false },
+      ticks: { color: '#7c6bf2', font: { family: 'Aptos, Calibri, sans-serif', size: 11 } },
+      title: { display: true, text: 'ALL Loyalty', color: '#7c6bf2', font: { family: 'Aptos, Calibri, sans-serif', size: 11 } }
+    };
+    options.plugins.legend = {
+      display: true,
+      position: 'top',
+      align: 'end',
+      labels: { usePointStyle: true, pointStyle: 'circle', boxWidth: 8, color: '#5B6673', font: { family: 'Aptos, Calibri, sans-serif', size: 11 } }
+    };
+    options.plugins.tooltip.displayColors = true;
+    return options;
+  }
+
+  function comboOccupancy(canvas, labels, values, loyalty){
+    const line = areaSeries(canvas, 'Occupancy %', values, '#1e22aa', '30,34,170');
+    line.type = 'line';
+    line.yAxisID = 'y';
+    line.order = 1;
+    return {
+      labels: labels,
+      datasets: [
+        {
+          type: 'bar',
+          label: 'ALL Loyalty Members',
+          data: loyalty || [],
+          yAxisID: 'y1',
+          backgroundColor: 'rgba(124,107,242,0.88)',
+          borderRadius: 6,
+          borderSkipped: false,
+          maxBarThickness: 18,
+          order: 2
+        },
+        line
+      ]
+    };
+  }
+
+  function drawTrend(canvasId, labels, values, name, hex, rgb, connectGaps){
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || !window.Chart) return;
+    const series = areaSeries(canvas, name, values, hex, rgb);
+    if (connectGaps) series.spanGaps = true;
+    mountChart(canvas, {
+      type: 'line',
+      data: { labels: labels, datasets: [series] },
+      options: chartFrame()
+    });
+  }
+
   function drawOccupancyChart(canvasId, series){
     const canvas = document.getElementById(canvasId);
     if (!canvas || !window.Chart) return;
-    const options = chartFrame();
-    options.scales.y.suggestedMax = 100;
     mountChart(canvas, {
-      type: 'line',
-      data: { labels: series.labels, datasets: [areaSeries(canvas, 'Occupancy %', series.values, '#1e22aa', '30,34,170')] },
-      options: options
+      type: 'bar',
+      data: comboOccupancy(canvas, series.labels, series.values, series.loyalty),
+      options: comboOptions()
     });
   }
 
@@ -1123,15 +1325,21 @@
         <div class="dmr-card dmr-stat"><div class="num">${data.totalFail}</div><div class="lbl">Checklist Failures (✗)</div></div>
         <div class="dmr-card dmr-stat"><div class="num">${data.complaintsList.length}</div><div class="lbl">Guest Complaints</div></div>
         <div class="dmr-card dmr-stat"><div class="num">${data.totalIncidents}</div><div class="lbl">Incidents Logged</div></div>
-        <div class="dmr-card dmr-stat"><div class="num">${data.totalNotesOpen}</div><div class="lbl">Action Items Open</div></div>
+        <button type="button" class="dmr-card dmr-stat dmr-stat-btn" id="openActionsCard"><div class="num">${data.totalNotesOpen}</div><div class="lbl">Action Items Open</div></button>
         <div class="dmr-card dmr-stat"><div class="num">${data.courtesyNeg}</div><div class="lbl">Negative Courtesy Calls</div></div>
         <div class="dmr-card dmr-stat"><div class="num">${data.avgGss}</div><div class="lbl">Avg. TrustYou GSS</div></div>
         <div class="dmr-card dmr-stat"><div class="num">${data.reviewsSum || '—'}</div><div class="lbl">Total Reviews Analyzed</div></div>
       </div>
+      ${actionItemsHtml(data.actionItems)}
 
       <div class="dmr-card dmr-chart-card">
         <h3>Occupancy %</h3>
         <div class="chart-box"><canvas id="occupancyChart"></canvas></div>
+      </div>
+
+      <div class="dmr-card dmr-chart-card">
+        <h3>TrustYou GSS</h3>
+        <div class="chart-box"><canvas id="gssChart"></canvas></div>
       </div>
 
       <div class="dmr-card dmr-chart-card">
@@ -1142,10 +1350,11 @@
       <div class="dmr-card dmr-chart-card">
         <h3>Most Recurring Deficiencies</h3>
         ${data.topItems.length === 0 ? '<div class="dmr-sub" style="margin:0;">No recurring issues recorded in this period 👍</div>' :
-          data.topItems.map(([label, count]) => `
+          data.topItems.map(item => `
             <div class="dmr-recur-item">
-              <span>${escapeHtml(label)}</span>
-              <span class="dmr-recur-count">${count}×</span>
+              <span>${escapeHtml(item.label)}</span>
+              <span class="dmr-recur-count">${item.count}×</span>
+              ${(item.notes || []).length ? `<div class="dmr-recur-notes">${item.notes.map(note => `<div>${fmtDate(note.date).split(',')[0]} — ${escapeHtml(note.text)}</div>`).join('')}</div>` : '<div class="dmr-recur-notes">No comment entered.</div>'}
             </div>`).join('')}
       </div>
 
@@ -1160,11 +1369,20 @@
       </div>
 
       <div class="dmr-card dmr-chart-card">
-        <h3>Incidents & Operational Remarks (${data.incidentsList.length})</h3>
+        <h3>Incidents (${data.incidentsList.length})</h3>
         ${data.incidentsList.length === 0 ? '<div class="dmr-sub" style="margin:0;">No incidents logged.</div>' :
           data.incidentsList.map(i => `
             <div class="dmr-recur-item">
               <span>${fmtDate(i.date).split(',')[0]} — ${escapeHtml(i.description)} ${i.time ? '('+escapeHtml(i.time)+')' : ''}</span>
+            </div>`).join('')}
+      </div>
+
+      <div class="dmr-card dmr-chart-card">
+        <h3>General Comments (${(data.generalCommentsList || []).length})</h3>
+        ${(data.generalCommentsList || []).length === 0 ? '<div class="dmr-sub" style="margin:0;">No general comments logged.</div>' :
+          data.generalCommentsList.map(i => `
+            <div class="dmr-recur-item">
+              <span>${fmtDate(i.date).split(',')[0]} — ${escapeHtml(i.comment)} ${i.time ? '('+escapeHtml(i.time)+')' : ''}</span>
             </div>`).join('')}
       </div>
 
@@ -1193,6 +1411,7 @@
 
     drawChart();
     drawOccupancyChart('occupancyChart', occupancySeries(state.dutyIndex || [], state.periodFrom, state.periodTo));
+    drawTrend('gssChart', occupancySeries(state.dutyIndex || [], state.periodFrom, state.periodTo).labels, data.gss || [], 'TrustYou GSS', '#14b8a6', '20,184,166', true);
     const expBtn = document.getElementById('exportAnalysisPdf');
     if (expBtn) expBtn.onclick = exportAnalysisPdf;
   }
@@ -1333,10 +1552,26 @@
   }
 
   // ---------- PDF Generation ----------
-  function chartImage(draw){
+  function paintChartsWhite(){
+    if (!window.Chart || window.Chart.__whiteBackground) return;
+    window.Chart.register({
+      id: 'whiteBackground',
+      afterDraw(chart) {
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-over';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, chart.width, chart.height);
+        ctx.restore();
+      }
+    });
+    window.Chart.__whiteBackground = true;
+  }
+
+  function chartImage(draw, width, height){
     const canvas = document.createElement('canvas');
-    canvas.width = 900;
-    canvas.height = 280;
+    canvas.width = width || 900;
+    canvas.height = height || 280;
     const previous = Chart.defaults.devicePixelRatio;
     Chart.defaults.devicePixelRatio = 1;
     let chart = null;
@@ -1351,24 +1586,21 @@
 
   async function occupancyChartImage(startIso, endIso){
     if (!window.Chart) return null;
+    paintChartsWhite();
     const index = await apiFetch('/api/reports/index');
     if (!index) return null;
     const series = occupancySeries(index, startIso, endIso);
     const canvas = document.createElement('canvas');
     canvas.width = 900;
     canvas.height = 280;
-    const options = chartFrame();
+    const options = comboOptions();
     options.animation = false;
     options.responsive = false;
-    options.scales.y.suggestedMax = 100;
     const previous = Chart.defaults.devicePixelRatio;
     Chart.defaults.devicePixelRatio = 1;
     const chart = new Chart(canvas, {
-      type: 'line',
-      data: {
-        labels: series.labels,
-        datasets: [areaSeries(canvas, 'Occupancy %', series.values, '#1e22aa', '30,34,170')]
-      },
+      type: 'bar',
+      data: comboOccupancy(canvas, series.labels, series.values, series.loyalty),
       options: options
     });
     const url = canvas.toDataURL('image/jpeg', 0.82);
@@ -1539,7 +1771,7 @@
 
     // Cafeteria
     if (r.cafeteriaItems && r.cafeteriaItems.length) {
-      y = pdfSectionHeading(doc, W, y, 'Staff Cafeteria Inspection' + (r.cafeteriaMealTime ? ' — ' + r.cafeteriaMealTime : ''));
+      y = pdfSectionHeading(doc, W, y, cafeteriaHeading(r.cafeteriaMealTime, r.cafeteriaTime));
       const cols = [
         {key:'STATUS', label:'STATUS', w:38, align:'center'},
         {key:'ITEM', label:'CHECK ITEM', w:290},
@@ -1573,9 +1805,8 @@
       y += 8;
     }
 
-    // Incidents
     if (r.incidents && r.incidents.length) {
-      y = pdfSectionHeading(doc, W, y, 'Incidents / General Comments');
+      y = pdfSectionHeading(doc, W, y, 'Incidents');
       const cols = [
         {key:'TIME', label:'TIME', w:60},
         {key:'DESCRIPTION', label:'DESCRIPTION', w:455}
@@ -1585,27 +1816,18 @@
       y += 8;
     }
 
-    // Notes
-    if (r.notes && r.notes.length) {
-      y = pdfSectionHeading(doc, W, y, 'Detailed Notes & Observations');
-      for (const n of r.notes) {
-        if (y + 26 > 780) { doc.addPage(); y = 45; }
-        doc.setFont('helvetica','bold'); doc.setFontSize(9);
-        doc.setTextColor(...NOVOTEL.navy);
-        doc.text(`${n.time}  |  ${n.department}  |  ${(n.priority||'').toUpperCase()}  |  ${(n.status||'').toUpperCase()}`, 40, y); y += 13;
-        doc.setFont('helvetica','normal'); doc.setFontSize(9);
-        doc.setTextColor(...NOVOTEL.ink);
-        const lines = doc.splitTextToSize(`${n.manager || 'Duty Manager'}: ${n.text}`, W - 80);
-        doc.text(lines, 40, y); y += lines.length * 12 + 4;
-        if (n.photo_url) {
-          const img = await loadImg(n.photo_url);
-          if (img) {
-            if (y + 100 > 780) { doc.addPage(); y = 45; }
-            try { doc.addImage(img, 'JPEG', 40, y, 86, 64); y += 70; } catch(e) {}
-          }
-        }
-      }
+    if (r.generalComments && r.generalComments.length) {
+      y = pdfSectionHeading(doc, W, y, 'General Comments');
+      const cols = [
+        {key:'TIME', label:'TIME', w:60},
+        {key:'COMMENT', label:'COMMENT', w:455}
+      ];
+      const rows = r.generalComments.map(item => ({TIME: item.time || '—', COMMENT: item.comment || ''}));
+      y = pdfTable(doc, W, y, cols, rows);
+      y += 8;
     }
+
+    if (r.notes && r.notes.length) y = await writeNotesPdf(doc, W, y, r.notes);
 
     addPdfFooter(doc, W);
     if (!sharedDoc) doc.save(`novotel-duty-report-${date}.pdf`);
@@ -1658,6 +1880,19 @@
         doc.addImage(occImg, 'JPEG', 40, y, W - 80, 150);
         y += 158;
       }
+      const gssImg = chartImage(canvas => {
+        const options = chartFrame();
+        options.animation = false;
+        options.responsive = false;
+        const series = areaSeries(canvas, 'TrustYou GSS', d.gss || [], '#14b8a6', '20,184,166');
+        series.spanGaps = true;
+        const labels = occupancySeries([], d.startDate, d.endDate).labels;
+        return new Chart(canvas, { type: 'line', data: { labels: labels, datasets: [series] }, options: options });
+      });
+      if (y + 180 > 780) { doc.addPage(); y = 45; }
+      y = pdfSectionHeading(doc, W, y, 'TrustYou GSS');
+      doc.addImage(gssImg, 'JPEG', 40, y, W - 80, 150);
+      y += 158;
     } catch (e) {}
     const canvas = document.getElementById('sectionChart');
     if (d.topSections) {
@@ -1698,7 +1933,12 @@
         {key:'ISSUE', label:'ISSUE', w:400},
         {key:'COUNT', label:'COUNT', w:115, align:'center'}
       ];
-      const rows = d.topItems.map(([label, count]) => ({ISSUE: label, COUNT: count + '×', COUNT_color: NOVOTEL.brassDark}));
+      const rows = [];
+      d.topItems.forEach(item => {
+        rows.push({ISSUE: item.label, COUNT: item.count + '×', COUNT_color: NOVOTEL.brassDark});
+        (item.notes || []).forEach(note => rows.push({ISSUE: note.date + ' — ' + note.text, COUNT: ''}));
+        if (!(item.notes || []).length) rows.push({ISSUE: 'No comment entered.', COUNT: ''});
+      });
       y = pdfTable(doc, W, y, cols, rows);
       y += 8;
     }
@@ -1723,12 +1963,22 @@
 
     // Incidents
     if (d.incidentsList.length) {
-      y = pdfSectionHeading(doc, W, y, 'Incidents / General Comments');
+      y = pdfSectionHeading(doc, W, y, 'Incidents');
       const cols = [
         {key:'DATE', label:'DATE', w:70},
         {key:'DESCRIPTION', label:'DESCRIPTION', w:445}
       ];
       const rows = d.incidentsList.map(i => ({DATE: i.date, DESCRIPTION: i.description + (i.time ? ' (' + i.time + ')' : ''), DESCRIPTION_color: NOVOTEL.danger}));
+      y = pdfTable(doc, W, y, cols, rows);
+      y += 8;
+    }
+    if ((d.generalCommentsList || []).length) {
+      y = pdfSectionHeading(doc, W, y, 'General Comments');
+      const cols = [
+        {key:'DATE', label:'DATE', w:70},
+        {key:'COMMENT', label:'COMMENT', w:445}
+      ];
+      const rows = d.generalCommentsList.map(i => ({DATE: i.date, COMMENT: i.comment + (i.time ? ' (' + i.time + ')' : '')}));
       y = pdfTable(doc, W, y, cols, rows);
       y += 8;
     }
@@ -1772,8 +2022,14 @@
         const file = checklistPhotoInput.files[0];
         checklistPhotoInput.value = '';
         if (!file || !state.photoTarget) return;
-        const [secKey, idxStr] = state.photoTarget;
+        const target = state.photoTarget;
         state.photoTarget = null;
+        if (state.section === 'night' && window.applyNightChecklistPhoto) {
+          await window.applyNightChecklistPhoto(file, target);
+          return;
+        }
+        if (!state.report) return;
+        const [secKey, idxStr] = target;
         const arr = secKey === 'cafeteriaItems' ? state.report.cafeteriaItems : state.report.checklists[secKey];
         const item = arr[parseInt(idxStr)];
         if (!item.photos) item.photos = [];
@@ -1801,6 +2057,10 @@
           const key = acc.dataset.acc;
           if (state.openAcc.has(key)) state.openAcc.delete(key);
           else state.openAcc.add(key);
+          if (acc.closest('#nightForm')) {
+            acc.open = state.openAcc.has(key);
+            return;
+          }
           render();
         };
       }
@@ -1809,6 +2069,7 @@
     const dateInput = document.getElementById('dateInput');
     if (dateInput) dateInput.onchange = (e) => switchDate(e.target.value);
 
+    if (state.section === 'duty' && state.report) {
     document.querySelectorAll('[data-gf]').forEach(inp => {
       inp.oninput = () => { state.report[inp.dataset.gf] = inp.value; queueSave(); };
     });
@@ -1858,8 +2119,10 @@
           roomsInspection: { room: '', status: null, comment: '' },
           courtesyCalls: { room: '', impression: null, comment: '' },
           complaints: { complaint: '', room: '', action: '' },
-          incidents: { description: '', time: '' }
+          incidents: { description: '', time: '' },
+          generalComments: { comment: '', time: '' }
         };
+        if (!state.report[key]) state.report[key] = [];
         state.report[key].push(Object.assign({}, templates[key]));
         render(); queueSave();
       };
@@ -1921,11 +2184,12 @@
         const note = state.report.notes.find(n => n.id === noteId);
         if (note) {
           note.status = sel.value;
-          await apiFetch(`/api/notes/${noteId}`, {
+          const updated = await apiFetch(`/api/notes/${noteId}`, {
             method: 'PATCH',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ status: sel.value })
           });
+          if (updated && updated.timeline) note.timeline = updated.timeline;
           render();
         }
       };
@@ -1934,6 +2198,7 @@
     document.querySelectorAll('[data-del]').forEach(btn => {
       btn.onclick = () => { state.confirmDeleteId = btn.dataset.del; renderOverlays(); };
     });
+    }
 
     document.querySelectorAll('[data-photo]').forEach(img => {
       img.onclick = () => { state.modalImg = img.src; renderOverlays(); };
@@ -2015,7 +2280,317 @@
     }
   }
 
+  function nightAreaSections() {
+    return AREA_SECTIONS.map(sec => {
+      if (sec.key !== 'publicAreas') return sec;
+      return {
+        key: sec.key,
+        title: sec.title,
+        items: sec.items.filter(it => it !== 'Somou Taxi on Duty?')
+      };
+    });
+  }
+
+  function blankCheckItem() {
+    return { status: null, comment: '', photos: [] };
+  }
+
+  function checkItemFrom(item) {
+    const src = item || {};
+    return {
+      status: src.status === true ? true : (src.status === false ? false : null),
+      comment: src.comment || '',
+      photos: Array.isArray(src.photos) ? src.photos.slice(0, 2) : []
+    };
+  }
+
+  function normalizeNightInspection(saved) {
+    const checklists = {};
+    nightAreaSections().forEach(sec => {
+      const incoming = (saved && saved.checklists && saved.checklists[sec.key]) || [];
+      checklists[sec.key] = sec.items.map((_, i) => checkItemFrom(incoming[i]));
+    });
+    const cafe = (saved && saved.cafeteriaItems) || [];
+    const notes = Array.isArray(saved && saved.notes) ? saved.notes : [];
+    return {
+      checklists: checklists,
+      roomsInspection: Array.isArray(saved && saved.roomsInspection) ? saved.roomsInspection.map(row => ({
+        room: (row && row.room) || '',
+        status: row && row.status === true ? true : (row && row.status === false ? false : null),
+        comment: (row && row.comment) || ''
+      })) : [],
+      cafeteriaMealTime: (saved && saved.cafeteriaMealTime) || '',
+      cafeteriaTime: (saved && saved.cafeteriaTime) || '',
+      cafeteriaItems: CAFETERIA_ITEMS.map((_, i) => checkItemFrom(cafe[i])),
+      complaints: Array.isArray(saved && saved.complaints) ? saved.complaints.map(row => ({
+        complaint: (row && row.complaint) || '',
+        room: (row && row.room) || '',
+        action: (row && row.action) || ''
+      })) : [],
+      incidents: Array.isArray(saved && saved.incidents) ? saved.incidents.map(row => ({
+        description: (row && row.description) || '',
+        time: (row && row.time) || ''
+      })) : [],
+      generalComments: Array.isArray(saved && saved.generalComments) ? saved.generalComments.map(row => ({
+        comment: (row && row.comment) || '',
+        time: (row && row.time) || ''
+      })) : [],
+      notes: notes.map((n, i) => ({
+        id: (n && n.id) || ('nn_' + i),
+        department: (n && n.department) || 'Other',
+        priority: (n && n.priority) || 'normal',
+        text: (n && n.text) || '',
+        photo_url: (n && n.photo_url) || null,
+        manager: (n && n.manager) || '',
+        time: (n && n.time) || '',
+        status: (n && n.status) || 'open'
+      }))
+    };
+  }
+
+  function nightNoteHtml(n, locked) {
+    const pr = priorityMeta(n.priority), st = statusMeta(n.status);
+    return `
+    <div class="dmr-entry">
+      <div class="dmr-card dmr-entry-card">
+        <div class="dmr-entry-top">
+          <div><span class="dmr-tag dmr-tag-dept">${escapeHtml(n.department)}</span><span class="dmr-tag ${pr.cls}">${pr.label}</span></div>
+          <div class="dmr-entry-time">${escapeHtml(n.time)}</div>
+        </div>
+        <div class="dmr-entry-text">${escapeHtml(n.text)}</div>
+        <div class="dmr-entry-bottom">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span class="dmr-manager">Logged by: <b>${escapeHtml(n.manager)}</b></span>
+            ${n.photo_url ? `<img src="${escapeHtml(n.photo_url)}" class="dmr-thumb" data-photo="${escapeHtml(n.photo_url)}">` : ''}
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <select class="dmr-status-select ${st.cls}" data-night-note-status="${escapeHtml(n.id)}" ${locked ? 'disabled' : ''}>
+              ${STATUSES.map(s => `<option value="${s.v}" ${s.v===n.status?'selected':''}>${s.label}</option>`).join('')}
+            </select>
+            ${locked ? '' : `<button class="dmr-del" type="button" data-night-note-del="${escapeHtml(n.id)}">✕</button>`}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function renderNightInspection(pack, locked) {
+    const data = normalizeNightInspection(pack);
+    const dis = locked ? 'disabled' : '';
+    return `
+    <div id="nightInspection" ${locked ? 'data-locked="1"' : ''}>
+      ${nightAreaSections().map(sec => renderChecklistAcc(sec, data.checklists[sec.key] || [])).join('')}
+      ${renderDynAcc('roomsInspection', 'Rooms Inspection', data.roomsInspection, [
+        {key:'room', ph:'Room #', type:'text', w:1},
+        {key:'status', type:'toggle'},
+        {key:'comment', ph:'Inspection comment / findings', type:'text', w:2}
+      ])}
+      <details class="dmr-acc" data-acc="cafeteria" ${state.openAcc.has('cafeteria')?'open':''}>
+        <summary><span>Staff Cafeteria Audit</span><span class="arrow">▾</span></summary>
+        <div class="dmr-acc-body">
+          <div class="dmr-row" style="margin-top:14px;">
+            <div class="dmr-field"><label>Meal</label><input type="text" data-night-meal value="${escapeHtml(data.cafeteriaMealTime)}" placeholder="e.g. Dinner" ${dis}></div>
+            <div class="dmr-field"><label>Time</label><input type="time" data-night-time value="${escapeHtml(data.cafeteriaTime || '')}" ${dis}></div>
+          </div>
+          ${CAFETERIA_ITEMS.map((label, idx) => checklistRowHtml('cafeteriaItems', idx, label, null, data.cafeteriaItems[idx] || blankCheckItem())).join('')}
+        </div>
+      </details>
+      ${renderDynAcc('complaints', 'Guest Complaints', data.complaints, [
+        {key:'complaint', ph:'Nature of complaint', type:'textarea', w:2},
+        {key:'room', ph:'Room #', type:'text', w:1},
+        {key:'action', ph:'Action taken by Duty Manager', type:'textarea', w:2}
+      ])}
+      ${renderDynAcc('incidents', 'Incidents', data.incidents, [
+        {key:'description', ph:'Incident description', type:'textarea', w:3},
+        {key:'time', ph:'Time', type:'time', w:1}
+      ])}
+      ${renderDynAcc('generalComments', 'General Comments', data.generalComments || [], [
+        {key:'comment', ph:'General comment', type:'textarea', w:3},
+        {key:'time', ph:'Time', type:'time', w:1}
+      ])}
+      <details class="dmr-acc" data-acc="notes" ${state.openAcc.has('notes')?'open':''}>
+        <summary><span>Action Items</span><span class="arrow">▾</span></summary>
+        <div class="dmr-acc-body">
+          ${locked ? '' : `
+          <div style="padding-top:14px;">
+            <div class="dmr-row">
+              <div class="dmr-field"><label>Department</label><select id="nightNoteDept">${DEPTS.map(d=>`<option>${escapeHtml(d)}</option>`).join('')}</select></div>
+              <div class="dmr-field"><label>Priority</label><select id="nightNotePriority">${PRIORITIES.map(p=>`<option value="${p.v}">${escapeHtml(p.label)}</option>`).join('')}</select></div>
+            </div>
+            <div class="dmr-field"><label>Detailed Note</label><textarea id="nightNoteText" placeholder="Record maintenance issue, VIP requests, cleanliness observation..."></textarea></div>
+            <div class="dmr-row" style="align-items:flex-end;">
+              <div class="dmr-field" style="margin-bottom:0;">
+                <label>Attach Photo (Camera / Gallery)</label>
+                <div class="dmr-photo-input">
+                  <input type="file" id="nightNotePhoto" accept="image/*">
+                  <img id="nightNotePreview" class="dmr-photo-preview" style="display:none;">
+                </div>
+              </div>
+              <button class="dmr-btn dmr-btn-primary" id="nightAddNoteBtn" type="button" style="height:40px;">+ Add Note</button>
+            </div>
+          </div>`}
+          ${data.notes.length === 0 ? '<div class="dmr-empty" style="padding:24px;">No additional notes logged for this shift.</div>' :
+            `<div class="dmr-timeline" style="margin-top:14px;">${data.notes.map(n => nightNoteHtml(n, locked)).join('')}</div>`}
+        </div>
+      </details>
+    </div>`;
+  }
+
+  async function appendNightInspectionPdf(doc, y, pack) {
+    const W = doc.internal.pageSize.getWidth();
+    const data = normalizeNightInspection(pack);
+    const chkCols = [
+      {key:'STATUS', label:'STATUS', w:38, align:'center'},
+      {key:'ITEM', label:'ITEM', w:290},
+      {key:'REMARKS', label:'REMARKS', w:187}
+    ];
+    const statusRow = (label, e, idx) => {
+      const isFail = e.status === false, isOk = e.status === true;
+      return {
+        STATUS: isOk ? 'OK' : (isFail ? 'FAIL' : '—'),
+        ITEM: label,
+        REMARKS: e.comment || '',
+        _fill: isFail ? NOVOTEL.dangerBg : (idx % 2 === 0 ? NOVOTEL.white : NOVOTEL.rowAlt),
+        STATUS_color: isOk ? NOVOTEL.ok : (isFail ? NOVOTEL.danger : NOVOTEL.inkSoft)
+      };
+    };
+    nightAreaSections().forEach(sec => {
+      y = pdfSectionHeading(doc, W, y, sec.title);
+      const rows = sec.items.map((it, idx) => {
+        const label = typeof it === 'string' ? it : it.label;
+        const list = data.checklists[sec.key] || [];
+        return statusRow(label, list[idx] || {}, idx);
+      });
+      y = pdfTable(doc, W, y, chkCols, rows);
+      y += 8;
+    });
+    const evidence = [];
+    nightAreaSections().forEach(sec => {
+      sec.items.forEach((it, idx) => {
+        const list = data.checklists[sec.key] || [];
+        const e = list[idx] || {};
+        if (e.status === false && e.photos && e.photos.length) {
+          evidence.push({ section: sec.title, label: (typeof it === 'string' ? it : it.label), photos: e.photos });
+        }
+      });
+    });
+    CAFETERIA_ITEMS.forEach((label, idx) => {
+      const e = data.cafeteriaItems[idx] || {};
+      if (e.status === false && e.photos && e.photos.length) {
+        evidence.push({ section: 'Staff Cafeteria', label: label, photos: e.photos });
+      }
+    });
+    if (data.roomsInspection.length) {
+      y = pdfSectionHeading(doc, W, y, 'Rooms Inspection');
+      y = pdfTable(doc, W, y, [
+        {key:'ROOM', label:'ROOM', w:60},
+        {key:'STATUS', label:'STATUS', w:70, align:'center'},
+        {key:'COMMENT', label:'COMMENT', w:385}
+      ], data.roomsInspection.map(row => ({
+        ROOM: row.room || '—',
+        STATUS: row.status===true?'OK':(row.status===false?'FAIL':'—'),
+        COMMENT: row.comment || '',
+        STATUS_color: row.status===true?NOVOTEL.ok:(row.status===false?NOVOTEL.danger:NOVOTEL.inkSoft)
+      })));
+      y += 8;
+    }
+    y = pdfSectionHeading(doc, W, y, cafeteriaHeading(data.cafeteriaMealTime, data.cafeteriaTime));
+    y = pdfTable(doc, W, y, chkCols, CAFETERIA_ITEMS.map((label, idx) => statusRow(label, data.cafeteriaItems[idx] || {}, idx)));
+    y += 8;
+    if (data.complaints.length) {
+      y = pdfSectionHeading(doc, W, y, 'Guest Complaints');
+      y = pdfTable(doc, W, y, [
+        {key:'ROOM', label:'ROOM', w:55},
+        {key:'COMPLAINT', label:'COMPLAINT', w:230},
+        {key:'ACTION', label:'ACTION TAKEN', w:230}
+      ], data.complaints.map(c => ({ROOM: c.room || '—', COMPLAINT: c.complaint || '', ACTION: c.action || '—', COMPLAINT_color: NOVOTEL.danger, ACTION_color: NOVOTEL.ok})));
+      y += 8;
+    }
+    if (data.incidents.length) {
+      y = pdfSectionHeading(doc, W, y, 'Incidents');
+      y = pdfTable(doc, W, y, [
+        {key:'TIME', label:'TIME', w:60},
+        {key:'DESCRIPTION', label:'DESCRIPTION', w:455}
+      ], data.incidents.map(inc => ({TIME: inc.time || '—', DESCRIPTION: inc.description || '', DESCRIPTION_color: NOVOTEL.danger})));
+      y += 8;
+    }
+    if ((data.generalComments || []).length) {
+      y = pdfSectionHeading(doc, W, y, 'General Comments');
+      y = pdfTable(doc, W, y, [
+        {key:'TIME', label:'TIME', w:60},
+        {key:'COMMENT', label:'COMMENT', w:455}
+      ], data.generalComments.map(item => ({TIME: item.time || '—', COMMENT: item.comment || ''})));
+      y += 8;
+    }
+    if (evidence.length) {
+      y = pdfSectionHeading(doc, W, y, 'Inspection Photo Evidence');
+      y += 12;
+      for (const ev of evidence) {
+        if (y + 110 > 780) { doc.addPage(); y = 45; }
+        doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
+        doc.setTextColor(...NOVOTEL.brassDark);
+        doc.text(`${ev.section} — ${ev.label}`, 40, y); y += 11;
+        let px = 40, loaded = 0;
+        for (const p of ev.photos) {
+          const img = await loadImg(p);
+          if (!img) continue;
+          if (px + 90 > W - 40) { y += 96; px = 40; }
+          if (y + 90 > 770) { doc.addPage(); y = 45; }
+          try { doc.addImage(img, 'JPEG', px, y, 88, 88); px += 94; loaded++; } catch (e) {}
+        }
+        y += (loaded ? 98 : 3);
+      }
+      y += 6;
+    }
+    if (data.notes.length) y = await writeNotesPdf(doc, W, y, data.notes);
+    return y;
+  }
+
+  function actionItemsNow() {
+    if (state.section === 'full' && window.currentDutyAnalysis) return window.currentDutyAnalysis.actionItems || [];
+    return (state.analysisData && state.analysisData.actionItems) || [];
+  }
+
+  function openDutyReport(date) {
+    state.actionPopup = false;
+    state.section = 'duty';
+    state.view = 'today';
+    switchDate(date);
+  }
+
+  if (!document.body.dataset.actionBound) {
+    document.body.dataset.actionBound = '1';
+    document.body.addEventListener('click', (e) => {
+      const review = e.target.closest && e.target.closest('[data-review-date]');
+      if (review) { e.preventDefault(); openDutyReport(review.dataset.reviewDate); return; }
+      if (e.target.id === 'openActionsCard' || (e.target.closest && e.target.closest('#openActionsCard'))) {
+        e.preventDefault();
+        state.actionPopup = true;
+        renderOverlays();
+      }
+    });
+    document.body.addEventListener('change', async (e) => {
+      const sel = e.target.closest && e.target.closest('[data-action-status]');
+      if (!sel || !canWrite(state.user && state.user.role, 'duty')) return;
+      const updated = await apiFetch('/api/notes/' + sel.dataset.actionStatus, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ status: sel.value })
+      });
+      if (!updated || updated.success === false) return;
+      showToast('Status updated');
+      if (state.section === 'full' && window.reloadFullReport) window.reloadFullReport();
+      else if (state.view === 'analysis') loadAnalysis();
+    });
+  }
+
   window.canWrite = canWrite;
+  window.actionItemsHtml = actionItemsHtml;
+  window.renderNightInspection = renderNightInspection;
+  window.normalizeNightInspection = normalizeNightInspection;
+  window.appendNightInspectionPdf = appendNightInspectionPdf;
+  window.uploadDutyPhoto = uploadPhotoFile;
+  window.renderOverlays = renderOverlays;
   window.apiFetch = apiFetch;
   window.state = state;
   window.renderApp = render;
@@ -2025,7 +2600,9 @@
   window.occupancySeries = occupancySeries;
   window.periodBar = periodBar;
   window.periodQuery = periodQuery;
-  window.NovotelCharts = { chartFrame, areaSeries, chartFill, mountChart, chartImage };
+  window.NovotelCharts = { chartFrame, areaSeries, chartFill, mountChart, chartImage, comboOccupancy, comboOptions };
+  window.drawOccupancyChart = drawOccupancyChart;
+  window.drawTrend = drawTrend;
 
   init();
 })();

@@ -46,6 +46,14 @@ class NightSave(BaseModel):
     vip: Optional[List[Dict[str, Any]]] = None
     checklist: Optional[List[Dict[str, Any]]] = None
     comments: Optional[List[str]] = None
+    inspection: Optional[Dict[str, Any]] = None
+    shiftStart: str = ""
+    shiftEnd: str = ""
+    arrivals: str = ""
+    departures: str = ""
+    inHouse: str = ""
+    allMembers: str = ""
+    overviewOccupancy: str = ""
 
 
 def _parse_date(value: str):
@@ -180,6 +188,7 @@ async def _response(db: aiosqlite.Connection, date_text: str, row):
         vip = _loads(row["vip_json"], [])
         checklist = _loads(row["checklist_json"], _blank_checklist())
         comments = _loads(row["comments_json"], _blank_comments())
+        inspection = _loads(row["inspection_json"], None) if "inspection_json" in row.keys() else None
     else:
         rooms_available = await _hotel_rooms(db)
         rooms_occupied = rooms_revenue = fb = me = ood = other = 0
@@ -189,6 +198,7 @@ async def _response(db: aiosqlite.Connection, date_text: str, row):
         vip = []
         checklist = _blank_checklist()
         comments = _blank_comments()
+        inspection = None
 
     saved = await _month_rows(db, report_date)
     payload = {
@@ -208,6 +218,14 @@ async def _response(db: aiosqlite.Connection, date_text: str, row):
         "vip": vip,
         "checklist": checklist,
         "comments": comments,
+        "inspection": inspection,
+        "shiftStart": (row["shift_start"] or "") if row else "",
+        "shiftEnd": (row["shift_end"] or "") if row else "",
+        "arrivals": (row["arrivals"] or "") if row else "",
+        "departures": (row["departures"] or "") if row else "",
+        "inHouse": (row["in_house"] or "") if row else "",
+        "allMembers": (row["all_members"] or "") if row else "",
+        "overviewOccupancy": (row["overview_occupancy"] or "") if row else "",
         "calculated": night_figures(rooms_available, rooms_occupied, rooms_revenue, fb, me, ood, other),
         "segmentGap": segment_gap(rooms_occupied, [_num(item.get("rooms")) for item in segments]),
         "mtd": month_to_date(rooms_available, report_date.day, saved),
@@ -280,8 +298,10 @@ async def get_night_analysis(
 
     labels = []
     occupancy = []
+    loyalty = []
     adr = []
     revpar = []
+    rooms_daily = []
     rooms = fb = me = ood = other = 0.0
     day = start_day
     while day <= report_date:
@@ -289,8 +309,10 @@ async def get_night_analysis(
         row = saved.get(day.isoformat())
         if row is None:
             occupancy.append(None)
+            loyalty.append(0)
             adr.append(None)
             revpar.append(None)
+            rooms_daily.append(0)
         else:
             figures = night_figures(
                 row["rooms_available"],
@@ -302,8 +324,10 @@ async def get_night_analysis(
                 row["other_revenue"],
             )
             occupancy.append(None if figures["occupancy"] is None else money(figures["occupancy"] * 100))
+            loyalty.append(_num(row["all_members"]) if "all_members" in row.keys() else 0)
             adr.append(None if figures["adr"] is None else money(figures["adr"]))
             revpar.append(None if figures["revpar"] is None else money(figures["revpar"]))
+            rooms_daily.append(money(row["rooms_revenue"]))
             rooms += row["rooms_revenue"]
             fb += row["fb_revenue"]
             me += row["me_revenue"]
@@ -324,8 +348,10 @@ async def get_night_analysis(
         "range": range,
         "labels": labels,
         "occupancy": occupancy,
+        "loyalty": loyalty,
         "adr": adr,
         "revpar": revpar,
+        "roomsSeries": rooms_daily,
         "revenue": {
             "rooms": money(rooms),
             "fb": money(fb),
@@ -365,6 +391,7 @@ async def save_night(
     existing_vip = _loads(row["vip_json"], None) if row else None
     existing_checklist = _loads(row["checklist_json"], None) if row else None
     existing_comments = _loads(row["comments_json"], None) if row else None
+    existing_inspection = _loads(row["inspection_json"], None) if row and "inspection_json" in row.keys() else None
 
     segments = data.segments if data.segments is not None else (existing_segments if existing_segments is not None else _blank_segments())
     forecast = _forecast_for_save(report_date, data.forecast, existing_forecast)
@@ -372,6 +399,7 @@ async def save_night(
     vip = data.vip if data.vip is not None else (existing_vip if existing_vip is not None else [])
     checklist = data.checklist if data.checklist is not None else (existing_checklist if existing_checklist is not None else _blank_checklist())
     comments = _comments_for_save(data.comments, existing_comments)
+    inspection = data.inspection if data.inspection is not None else (existing_inspection if existing_inspection is not None else {})
     now = _now()
 
     if row:
@@ -380,14 +408,19 @@ async def save_night(
             UPDATE night_reports SET
                 rooms_occupied = ?, rooms_revenue = ?, fb_revenue = ?, me_revenue = ?,
                 ood_revenue = ?, other_revenue = ?, segments_json = ?, forecast_json = ?,
-                groups_json = ?, vip_json = ?, checklist_json = ?, comments_json = ?, updated_at = ?
+                groups_json = ?, vip_json = ?, checklist_json = ?, comments_json = ?,
+                inspection_json = ?,
+                shift_start = ?, shift_end = ?, arrivals = ?, departures = ?,
+                in_house = ?, all_members = ?, overview_occupancy = ?, updated_at = ?
             WHERE date = ?
             """,
             (
                 data.roomsOccupied, data.roomsRevenue, data.fbRevenue, data.meRevenue,
                 data.oodRevenue, data.otherRevenue, json.dumps(segments), json.dumps(forecast),
                 json.dumps(groups), json.dumps(vip), json.dumps(checklist), json.dumps(comments),
-                now, data.date,
+                json.dumps(inspection),
+                data.shiftStart, data.shiftEnd, data.arrivals, data.departures,
+                data.inHouse, data.allMembers, data.overviewOccupancy, now, data.date,
             ),
         )
     else:
@@ -396,14 +429,18 @@ async def save_night(
             INSERT INTO night_reports (
                 date, status, rooms_available, rooms_occupied, rooms_revenue, fb_revenue,
                 me_revenue, ood_revenue, other_revenue, segments_json, forecast_json,
-                groups_json, vip_json, checklist_json, comments_json, created_at, updated_at
-            ) VALUES (?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                groups_json, vip_json, checklist_json, comments_json, inspection_json,
+                shift_start, shift_end, arrivals, departures, in_house, all_members, overview_occupancy,
+                created_at, updated_at
+            ) VALUES (?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data.date, await _hotel_rooms(db), data.roomsOccupied, data.roomsRevenue,
                 data.fbRevenue, data.meRevenue, data.oodRevenue, data.otherRevenue,
                 json.dumps(segments), json.dumps(forecast), json.dumps(groups), json.dumps(vip),
-                json.dumps(checklist), json.dumps(comments), now, now,
+                json.dumps(checklist), json.dumps(comments), json.dumps(inspection),
+                data.shiftStart, data.shiftEnd, data.arrivals, data.departures,
+                data.inHouse, data.allMembers, data.overviewOccupancy, now, now,
             ),
         )
 
