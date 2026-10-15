@@ -1412,7 +1412,7 @@
       <div class="dash-pies">
         <div class="dmr-card dmr-chart-card"><h3>Duty reports</h3><div class="chart-box chart-box-pie"><canvas id="pieDuty"></canvas></div></div>
         <div class="dmr-card dmr-chart-card"><h3>Night reports</h3><div class="chart-box chart-box-pie"><canvas id="pieNight"></canvas></div></div>
-        <div class="dmr-card dmr-chart-card"><h3>Night revenue mix</h3><div class="chart-box chart-box-pie"><canvas id="pieRevenue"></canvas></div></div>
+        <div class="dmr-card dmr-chart-card"><h3>Revenue Mix</h3><div class="chart-box chart-box-pie"><canvas id="pieRevenue"></canvas></div></div>
       </div>
       ${window.actionItemsHtml ? window.actionItemsHtml((duty && duty.actionItems) || []) : ''}
       <div class="dmr-card dmr-chart-card"><h3>Duty occupancy and ALL Loyalty Members</h3><div class="chart-box"><canvas id="fullOcc"></canvas></div></div>
@@ -1487,7 +1487,7 @@
     y = pdfPieRow(doc, W, y, [
       { title: 'Duty reports', image: pieImage(charts, ['Submitted', 'Not submitted'], [stats.dutySubmitted, stats.dutyMissing], ['#4F7A5B', '#E7D3D0']) },
       { title: 'Night reports', image: pieImage(charts, ['Submitted', 'Not submitted'], [stats.nightFiled, stats.nightMissing], ['#0f766e', '#E7D3D0']) },
-      { title: 'Night revenue mix', image: pieImage(charts, ['Rooms', 'F&B', 'M&E', 'OOD', 'Other'], [revenueMix.rooms || 0, revenueMix.fb || 0, revenueMix.me || 0, revenueMix.ood || 0, revenueMix.other || 0], ['#1e22aa', '#14b8a6', '#7c6bf2', '#A8814F', '#8aa0b2']) }
+      { title: 'Revenue Mix', image: pieImage(charts, ['Rooms', 'F&B', 'M&E', 'OOD', 'Other'], [revenueMix.rooms || 0, revenueMix.fb || 0, revenueMix.me || 0, revenueMix.ood || 0, revenueMix.other || 0], ['#1e22aa', '#14b8a6', '#7c6bf2', '#A8814F', '#8aa0b2']) }
     ]);
     y += 8;
     const series = window.occupancySeries(pack.index, pack.from, pack.to);
