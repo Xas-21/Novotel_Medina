@@ -364,13 +364,13 @@
 
         <div class="dmr-card dmr-section-card">
           <p id="nightPrepared" class="dmr-prepared-by"${d.submittedBy ? '' : ' hidden'}>Prepared by: ${escapeHtml(d.submittedBy || '')}</p>
-          ${editingLocked() ? '' : `
-            <div class="night-actions">
-              <button type="button" class="dmr-btn dmr-btn-ghost" id="nightSaveBtn">Save</button>
-              <button type="button" class="dmr-btn dmr-btn-primary" id="nightSubmitBtn">Submit</button>
-            </div>`}
           <div id="nightNote" class="night-note"></div>
         </div>
+        ${editingLocked() ? '' : `
+        <div class="dmr-card" style="padding:18px;margin-top:10px;text-align:center;">
+          <button type="button" class="dmr-btn dmr-btn-primary" id="nightSubmitBtn" style="width:100%;justify-content:center;padding:13px;font-size:14.5px;">✓ Submit &amp; Close Daily Report</button>
+          <div class="dmr-sub" style="margin:8px 0 0;">Submitting finalizes the shift round, logs your signature, and archives the report.</div>
+        </div>`}
       </div>`;
   }
 
@@ -781,10 +781,17 @@
 
   async function submitNight(){
     if (editingLocked()) return;
+    syncDraftFromDom();
+    const gaps = window.missingNightSections ? window.missingNightSections(draft.inspection) : [];
+    if (gaps.length && window.showSubmitGaps) { window.showSubmitGaps(gaps); return; }
     const saved = await saveNow();
     if (!saved) return;
     const date = window.state.selectedDate;
     const res = await window.apiFetch('/api/night/submit?date=' + encodeURIComponent(date), {method: 'POST'});
+    if (res && Array.isArray(res.detail) && res.detail.length && window.showSubmitGaps) {
+      window.showSubmitGaps(res.detail);
+      return;
+    }
     if (!res || !res.submittedBy) {
       showNote(errorText(res) || 'Could not submit');
       return;

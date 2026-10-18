@@ -61,6 +61,7 @@
     confirmDeleteReport: null,
     actionPopup: false,
     photoTarget: null,
+    submitGaps: null,
     toast: null,
     wsConnected: false
   };
@@ -645,6 +646,24 @@
         state.confirmDeleteReport = null;
         await deleteReport(date);
       };
+    }
+
+    if (state.submitGaps && state.submitGaps.length) {
+      const bg = document.createElement('div');
+      bg.className = 'dmr-modal-bg';
+      bg.innerHTML = `
+        <div class="dmr-dialog">
+          <h3>Finish these sections first</h3>
+          <p>Every checklist item needs a mark. Rooms Inspection needs at least one room. Duty reports also need at least one courtesy call.</p>
+          <ul style="margin:0 0 16px;padding-left:18px;color:var(--ink);font-size:13.5px;line-height:1.6;">
+            ${state.submitGaps.map(title => `<li>${escapeHtml(title)}</li>`).join('')}
+          </ul>
+          <div class="dmr-dialog-actions"><button type="button" class="dmr-btn dmr-btn-primary dmr-btn-sm" id="gapsClose">Close</button></div>
+        </div>`;
+      document.getElementById('dmrRoot').appendChild(bg);
+      const close = () => { state.submitGaps = null; renderOverlays(); };
+      document.getElementById('gapsClose').onclick = close;
+      bg.addEventListener('click', (e) => { if (e.target === bg) close(); });
     }
 
     if (state.actionPopup) {
@@ -2362,8 +2381,11 @@
     const submitBtn = document.getElementById('submitReportBtn');
     if (submitBtn) {
       submitBtn.onclick = async () => {
+        const gaps = missingDutySections(state.report);
+        if (gaps.length) { showSubmitGaps(gaps); return; }
         await persistReport();
         const res = await apiFetch(`/api/reports/${state.selectedDate}/submit`, { method: 'POST' });
+        if (res && Array.isArray(res.detail) && res.detail.length) { showSubmitGaps(res.detail); return; }
         if (res && res.success) {
           state.report.status = 'submitted';
           state.report.submittedAt = res.submittedAt;
@@ -2428,6 +2450,50 @@
       render();
       showToast('Note logged ✓');
     }
+  }
+
+  function sectionStillOpen(section, rows) {
+    const items = rows || [];
+    for (let i = 0; i < section.items.length; i++) {
+      const status = items[i] && items[i].status;
+      if (status !== true && status !== false) return true;
+    }
+    return false;
+  }
+
+  function missingDutySections(report) {
+    const data = report || {};
+    const gaps = [];
+    AREA_SECTIONS.forEach(sec => {
+      if (sectionStillOpen(sec, (data.checklists || {})[sec.key])) gaps.push(sec.title);
+    });
+    if (sectionStillOpen({items: CAFETERIA_ITEMS}, data.cafeteriaItems)) gaps.push('Staff Cafeteria Audit');
+    const rooms = (data.roomsInspection || []).some(row => String((row && row.room) || '').trim());
+    if (!rooms) gaps.push('Rooms Inspection');
+    const calls = (data.courtesyCalls || []).some(row => {
+      if (!row) return false;
+      if (String(row.room || '').trim() || String(row.comment || '').trim()) return true;
+      return row.impression === true || row.impression === false;
+    });
+    if (!calls) gaps.push('Courtesy Calls');
+    return gaps;
+  }
+
+  function missingNightSections(pack) {
+    const data = normalizeNightInspection(pack);
+    const gaps = [];
+    nightAreaSections().forEach(sec => {
+      if (sectionStillOpen(sec, data.checklists[sec.key])) gaps.push(sec.title);
+    });
+    if (sectionStillOpen({items: CAFETERIA_ITEMS}, data.cafeteriaItems)) gaps.push('Staff Cafeteria Audit');
+    const rooms = (data.roomsInspection || []).some(row => String((row && row.room) || '').trim());
+    if (!rooms) gaps.push('Rooms Inspection');
+    return gaps;
+  }
+
+  function showSubmitGaps(gaps) {
+    state.submitGaps = gaps;
+    renderOverlays();
   }
 
   function nightAreaSections() {
@@ -2739,6 +2805,8 @@
   window.actionItemsHtml = actionItemsHtml;
   window.renderNightInspection = renderNightInspection;
   window.normalizeNightInspection = normalizeNightInspection;
+  window.missingNightSections = missingNightSections;
+  window.showSubmitGaps = showSubmitGaps;
   window.appendNightInspectionPdf = appendNightInspectionPdf;
   window.uploadDutyPhoto = uploadPhotoFile;
   window.renderOverlays = renderOverlays;

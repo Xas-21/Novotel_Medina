@@ -178,7 +178,11 @@
         <div class="dmr-card dmr-section-card"><h3>Pre-arrival communication</h3>${pre || '<p class="dmr-sub">No guests yet.</p>'}<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="preArrival" ${dis}>+ Add guest</button></div>
         <div class="dmr-card dmr-section-card"><h3>In-house welcome call</h3>${house || '<p class="dmr-sub">No guests yet.</p>'}<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="inHouse" ${dis}>+ Add guest</button></div>
         <div class="dmr-card dmr-section-card"><h3>Departure courtesy call</h3>${leave || '<p class="dmr-sub">No guests yet.</p>'}<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="departure" ${dis}>+ Add guest</button></div>
-        ${dis ? '' : `<div class="night-actions"><button type="button" class="dmr-btn dmr-btn-ghost" id="guestSave">Save</button><button type="button" class="dmr-btn dmr-btn-primary" id="guestSubmit">Submit</button></div>`}
+        ${dis ? '' : `
+        <div class="dmr-card" style="padding:18px;margin-top:10px;text-align:center;">
+          <button type="button" class="dmr-btn dmr-btn-primary" id="guestSubmit" style="width:100%;justify-content:center;padding:13px;font-size:14.5px;">✓ Submit &amp; Close Daily Report</button>
+          <div class="dmr-sub" style="margin:8px 0 0;">Submitting finalizes the shift round, logs your signature, and archives the report.</div>
+        </div>`}
         <div id="guestNote" class="night-note"></div>
       </div>`;
   }

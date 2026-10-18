@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from app.auth import TokenData, can_write, require_admin, require_auth
 from app.database import get_db
 from app.night_math import missing_dates, money, month_to_date, night_figures, segment_gap
+from app.submit_gate import night_missing
 from app.ws import ws_manager
 
 router = APIRouter(prefix="/api/night", tags=["night"])
@@ -479,6 +480,10 @@ async def submit_night(
     submitted_by = await _submitted_by(db, user.user_id)
     now = _now()
     row = await _get_row(db, date)
+    inspection = _loads(row["inspection_json"], {}) if row and "inspection_json" in row.keys() else {}
+    missing = night_missing(inspection)
+    if missing:
+        raise HTTPException(status_code=400, detail=missing)
     if row:
         await db.execute(
             "UPDATE night_reports SET status = 'submitted', submitted_at = ?, submitted_by = ?, updated_at = ? WHERE date = ?",

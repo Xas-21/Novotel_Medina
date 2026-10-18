@@ -63,10 +63,35 @@ def _report_count(db_path):
         con.close()
 
 
+def _complete_duty(date):
+    from app.routes.reports import AREA_SECTIONS, CAFETERIA_ITEMS
+    return {
+        "date": date,
+        "checklists": {
+            sec["key"]: [{"status": True, "comment": "", "photos": []} for _ in sec["items"]]
+            for sec in AREA_SECTIONS
+        },
+        "cafeteriaItems": [{"status": True, "comment": "", "photos": []} for _ in CAFETERIA_ITEMS],
+        "roomsInspection": [{"room": "101", "status": True, "comment": "ok"}],
+        "courtesyCalls": [{"room": "202", "impression": True, "comment": "fine"}],
+    }
+
+
+def test_blank_duty_report_cannot_be_submitted(api):
+    client, _db_path = api
+    headers = _headers(USERS["staff"])
+    assert client.post("/api/reports", json={"date": "2099-03-09"}, headers=headers).status_code == 200
+    blocked = client.post("/api/reports/2099-03-09/submit", headers=headers)
+    assert blocked.status_code == 400
+    assert "Courtesy Calls" in blocked.json()["detail"]
+    assert "Rooms Inspection" in blocked.json()["detail"]
+    assert client.get("/api/reports", params={"date": "2099-03-09"}, headers=headers).json()["status"] == "draft"
+
+
 def test_open_note_carries_onto_the_next_report(api):
     client, _db_path = api
     headers = _headers(USERS["staff"])
-    assert client.post("/api/reports", json={"date": "2099-03-01"}, headers=headers).status_code == 200
+    assert client.post("/api/reports", json=_complete_duty("2099-03-01"), headers=headers).status_code == 200
     created = client.post(
         "/api/notes/2099-03-01",
         json={"department": "Maintenance", "priority": "urgent", "text": "Lobby light out"},

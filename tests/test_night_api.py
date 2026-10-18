@@ -36,6 +36,25 @@ USERS = {
     "admin": ("usr_admin", "admin.user", "Ada", "Admin", "General Manager", "admin"),
 }
 
+def _ready_inspection():
+    from app.routes.reports import CAFETERIA_ITEMS
+    from app.submit_gate import night_sections
+    return {
+        "checklists": {
+            sec["key"]: [{"status": True, "comment": "", "photos": []} for _ in sec["items"]]
+            for sec in night_sections()
+        },
+        "cafeteriaItems": [{"status": True, "comment": "", "photos": []} for _ in CAFETERIA_ITEMS],
+        "roomsInspection": [{"room": "101", "status": True, "comment": "ok"}],
+    }
+
+
+def _submittable(payload):
+    body = dict(payload)
+    body["inspection"] = _ready_inspection()
+    return body
+
+
 OCT_8 = {
     "date": "2026-10-08",
     "roomsOccupied": 235,
@@ -258,11 +277,22 @@ def test_later_save_keeps_stored_rooms_available(api):
     assert body["roomsOccupied"] == 236
 
 
+def test_blank_night_report_cannot_be_submitted(api):
+    client, _db_path = api
+    headers = _headers(USERS["night"])
+    assert client.put("/api/night", json=OCT_8, headers=headers).status_code == 200
+    blocked = client.post("/api/night/submit?date=2026-10-08", headers=headers)
+    assert blocked.status_code == 400
+    assert "Rooms Inspection" in blocked.json()["detail"]
+    assert "Courtesy Calls" not in blocked.json()["detail"]
+    assert client.get("/api/night?date=2026-10-08", headers=headers).json()["status"] == "draft"
+
+
 def test_submit_reads_name_from_users_table(api, monkeypatch):
     client, _db_path = api
     events = _capture_broadcasts(monkeypatch)
     night = _headers(USERS["night"], first_name="Wrong", last_name="Person", title="Impostor")
-    assert client.put("/api/night", json=OCT_8, headers=night).status_code == 200
+    assert client.put("/api/night", json=_submittable(OCT_8), headers=night).status_code == 200
 
     before = len(events)
     res = client.post("/api/night/submit?date=2026-10-08", headers=night)
@@ -279,7 +309,7 @@ def test_submitted_night_can_be_saved_only_by_admin(api):
     client, _db_path = api
     night = _headers(USERS["night"])
     admin = _headers(USERS["admin"])
-    assert client.put("/api/night", json=OCT_8, headers=night).status_code == 200
+    assert client.put("/api/night", json=_submittable(OCT_8), headers=night).status_code == 200
     assert client.post("/api/night/submit?date=2026-10-08", headers=night).status_code == 200
 
     changed = dict(OCT_8)
@@ -300,7 +330,7 @@ def test_reopen_is_admin_only(api, monkeypatch):
     events = _capture_broadcasts(monkeypatch)
     night = _headers(USERS["night"])
     admin = _headers(USERS["admin"])
-    assert client.put("/api/night", json=OCT_8, headers=night).status_code == 200
+    assert client.put("/api/night", json=_submittable(OCT_8), headers=night).status_code == 200
     assert client.post("/api/night/submit?date=2026-10-08", headers=night).status_code == 200
 
     before = len(events)

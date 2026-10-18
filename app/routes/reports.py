@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models import ReportSave, ReportIndexItem, TrustYouData
 from app.auth import can_write, get_current_user, require_admin, require_auth, TokenData
 from app.routes.notes import note_payload, timelines_for
+from app.submit_gate import duty_missing
 from app.ws import ws_manager
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -257,10 +258,24 @@ async def submit_report(
 
     now_str = datetime.utcnow().isoformat()
     submitted_by = (user.full_name + (f" — {user.title}" if user.title else "")) if user else "Duty Manager"
-    
+
+    cursor = await db.execute("SELECT * FROM reports WHERE date = ?", (date,))
+    row = await cursor.fetchone()
+    if row:
+        body = {
+            "checklists": json.loads(row["checklists_json"] or "{}"),
+            "cafeteriaItems": json.loads(row["cafeteria_items_json"] or "[]"),
+            "roomsInspection": json.loads(row["rooms_inspection_json"] or "[]"),
+            "courtesyCalls": json.loads(row["courtesy_calls_json"] or "[]"),
+        }
+    else:
+        body = {}
+    missing = duty_missing(body)
+    if missing:
+        raise HTTPException(status_code=400, detail=missing)
+
     # Ensure report row exists
-    cursor = await db.execute("SELECT date FROM reports WHERE date = ?", (date,))
-    if not await cursor.fetchone():
+    if not row:
         rep = default_report_dict(date)
         await db.execute(
             "INSERT INTO reports (date, status, submitted_at, submitted_by, created_at, updated_at) VALUES (?, 'submitted', ?, ?, ?, ?)",
