@@ -73,8 +73,9 @@
   }
 
   function canWrite(role, section){
-    if (role === 'admin' || role === 'staff') return section === 'duty' || section === 'night';
+    if (role === 'admin' || role === 'staff') return section === 'duty' || section === 'night' || section === 'guest';
     if (role === 'night') return section === 'night';
+    if (role === 'guest') return section === 'guest';
     return false;
   }
   function fmtDate(d){ const dt=new Date(d+"T00:00:00"); return dt.toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'}); }
@@ -98,6 +99,12 @@
     if (n >= 50) return NOVOTEL.ok;      // 50–100% → green
     if (n >= 11) return NOVOTEL.yellow;  // 11–49% → yellow
     return NOVOTEL.danger;               // 1–10% → red
+  }
+
+  function actionStatusColor(status) {
+    if (status === 'closed') return NOVOTEL.ok;
+    if (status === 'progress') return [196, 129, 60];
+    return NOVOTEL.danger;
   }
 
   function preparerName(r) {
@@ -400,8 +407,9 @@
   // ---------- Auth / Login ----------
   function pageLabel() {
     if (state.view === 'users') return 'Users';
+    if (state.view === 'settings') return 'Settings';
     if (state.section === 'full') return 'Dashboard';
-    const section = state.section === 'night' ? 'Night' : 'Duty';
+    const section = state.section === 'night' ? 'Night' : (state.section === 'guest' ? 'Guest Relation' : 'Duty');
     const view = { today: "Today's Report", archive: 'Archive', analysis: 'Analysis' }[state.view] || '';
     return view ? section + ' · ' + view : section;
   }
@@ -543,7 +551,10 @@
     if (crumb) crumb.textContent = pageLabel();
 
     const usersBtn = document.getElementById('usersNavBtn');
-    if (usersBtn) usersBtn.style.display = (state.user && state.user.role === 'admin') ? 'flex' : 'none';
+    const settingsBtn = document.getElementById('settingsNavBtn');
+    const admin = state.user && state.user.role === 'admin';
+    if (usersBtn) usersBtn.style.display = admin ? 'flex' : 'none';
+    if (settingsBtn) settingsBtn.style.display = admin ? 'flex' : 'none';
 
     document.querySelectorAll('.dmr-navbtn').forEach(b => {
       const sectionOk = !b.dataset.section || b.dataset.section === state.section;
@@ -557,8 +568,13 @@
     if (state.view === 'users') {
       main.innerHTML = renderUsers();
       loadUsers();
+    } else if (state.view === 'settings') {
+      main.innerHTML = renderSettings();
+      loadSettings();
     } else if (state.section === 'night' || state.section === 'full') {
       main.innerHTML = window.renderNightSection();
+    } else if (state.section === 'guest') {
+      main.innerHTML = window.renderGuestSection ? window.renderGuestSection() : '';
     } else if (state.loading) {
       main.innerHTML = '<div class="dmr-empty"><h3>Loading report data…</h3></div>';
     } else if (state.view === 'today') {
@@ -1440,6 +1456,26 @@
     });
   }
 
+  function renderSettings() {
+    return `
+    <div class="dmr-headline"><h1>Settings</h1></div>
+    <div class="dmr-sub">Hotel inventory used for night occupancy, ADR, and RevPAR</div>
+    <div class="dmr-card user-form-card">
+      <div class="dmr-field">
+        <label>Total rooms</label>
+        <input id="hotelRooms" type="number" min="1" max="5000" inputmode="numeric">
+      </div>
+      <button class="dmr-btn dmr-btn-primary" id="saveRoomsBtn" type="button">Save</button>
+      <div id="settingsNote" class="night-note"></div>
+    </div>`;
+  }
+
+  async function loadSettings() {
+    const data = await apiFetch('/api/settings/rooms');
+    const input = document.getElementById('hotelRooms');
+    if (input && data && data.rooms) input.value = data.rooms;
+  }
+
   // ---------- Users Management (admin only) ----------
   function renderUsers() {
     return `
@@ -1461,6 +1497,7 @@
         <div class="dmr-field"><label>Role</label><select id="u-role">
           <option value="staff">Staff</option>
           <option value="night">Night Manager</option>
+          <option value="guest">Guest Relation</option>
           <option value="admin">Admin</option>
         </select></div>
       </div>
@@ -1488,7 +1525,7 @@
           <div class="user-name">${escapeHtml(fullName(u))}</div>
           <div class="user-meta">@${escapeHtml(u.username)}${u.title ? ' · ' + escapeHtml(u.title) : ''}</div>
         </div>
-        <span class="user-role-badge ${u.role==='admin'?'user-role-admin':'user-role-staff'}">${u.role==='admin'?'Admin':'Staff'}</span>
+        <span class="user-role-badge ${u.role==='admin'?'user-role-admin':'user-role-staff'}">${u.role==='admin'?'Admin':(u.role==='night'?'Night Manager':(u.role==='guest'?'Guest Relation':'Staff'))}</span>
         ${state.user && u.id !== state.user.id ? `<button class="dmr-del" data-user-del="${u.id}" title="Delete user">✕</button>` : ''}
       </div>`).join('');
 
@@ -1609,6 +1646,107 @@
     return url;
   }
 
+  function drawDutyStatCards(doc, W, y, cards) {
+    const gap = 8;
+    const cols = 4;
+    const cw = (W - 80 - gap * (cols - 1)) / cols;
+    const ch = 48;
+    const rows = Math.ceil(cards.length / cols);
+    if (y + rows * (ch + gap) > 780) { doc.addPage(); y = 45; }
+    cards.forEach((card, i) => {
+      const x = 40 + (i % cols) * (cw + gap);
+      const top = y + Math.floor(i / cols) * (ch + gap);
+      doc.setFillColor(255, 255, 255);
+      doc.setDrawColor(...NOVOTEL.line);
+      doc.setLineWidth(0.6);
+      doc.roundedRect(x, top, cw, ch, 3, 3, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(...NOVOTEL.navy);
+      doc.text(String(card.v), x + cw / 2, top + 20, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.5);
+      doc.setTextColor(...NOVOTEL.inkSoft);
+      doc.text(doc.splitTextToSize(card.l, cw - 10).slice(0, 2), x + cw / 2, top + 33, { align: 'center' });
+    });
+    return y + rows * (ch + gap) + 10;
+  }
+
+  function placePdfChart(doc, W, y, title, image) {
+    if (!image) return y;
+    if (y + 190 > 780) { doc.addPage(); y = 45; }
+    y = pdfSectionHeading(doc, W, y, title);
+    y += 8;
+    doc.addImage(image, 'JPEG', 40, y, W - 80, 140);
+    return y + 152;
+  }
+
+  async function appendDutyArchiveSummary(doc, W, y, date) {
+    const data = await apiFetch('/api/reports/analysis?date=' + encodeURIComponent(date) + '&range=month');
+    if (!data || !data.startDate) return y;
+    y = drawDutyStatCards(doc, W, y, [
+      { v: String(data.days), l: 'Days Analyzed' },
+      { v: String(data.totalFail), l: 'Checklist Failures (X)' },
+      { v: String((data.complaintsList || []).length), l: 'Guest Complaints' },
+      { v: String(data.totalIncidents), l: 'Incidents Logged' },
+      { v: String(data.totalNotesOpen), l: 'Action Items Open' },
+      { v: String(data.courtesyNeg), l: 'Negative Courtesy Calls' },
+      { v: String(data.avgGss), l: 'Avg. TrustYou GSS' },
+      { v: String(data.reviewsSum || '—'), l: 'Total Reviews Analyzed' }
+    ]);
+    y = pdfSectionHeading(doc, W, y, 'Action Items');
+    const items = data.actionItems || [];
+    if (!items.length) {
+      if (y + 24 > 780) { doc.addPage(); y = 45; }
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(...NOVOTEL.inkSoft);
+      doc.text('No action items in this period.', 40, y + 14);
+      y += 28;
+    } else {
+      y = pdfTable(doc, W, y, [
+        { key: 'ITEM', label: 'ITEM', w: 400 },
+        { key: 'STATUS', label: 'STATUS', w: 115, align: 'center' }
+      ], items.map(item => ({
+        ITEM: [item.date || item.report_date || '', item.department || '', item.text || ''].filter(Boolean).join(' — '),
+        STATUS: statusMeta(item.status).label.toUpperCase(),
+        STATUS_color: actionStatusColor(item.status)
+      })));
+      y += 8;
+    }
+    try {
+      const occImg = await occupancyChartImage(data.startDate, data.endDate);
+      y = placePdfChart(doc, W, y, 'Occupancy %', occImg);
+      const labels = occupancySeries([], data.startDate, data.endDate).labels;
+      const gssImg = chartImage(canvas => {
+        const options = chartFrame();
+        options.animation = false;
+        options.responsive = false;
+        const series = areaSeries(canvas, 'TrustYou GSS', data.gss || [], '#14b8a6', '20,184,166');
+        series.spanGaps = true;
+        return new Chart(canvas, { type: 'line', data: { labels: labels, datasets: [series] }, options: options });
+      });
+      y = placePdfChart(doc, W, y, 'TrustYou GSS', gssImg);
+      const entries = (data.topSections && data.topSections.length) ? data.topSections : [['No failures', 0]];
+      const failImg = chartImage(canvas => {
+        const options = chartFrame();
+        options.animation = false;
+        options.responsive = false;
+        options.scales.y.ticks.precision = 0;
+        return new Chart(canvas, {
+          type: 'bar',
+          data: {
+            labels: entries.map(entry => entry[0]),
+            datasets: [{ data: entries.map(entry => entry[1]), backgroundColor: '#7c6bf2', borderRadius: 8, maxBarThickness: 36 }]
+          },
+          options: options
+        });
+      });
+      y = placePdfChart(doc, W, y, 'Inspection Failures by Area', failImg);
+    } catch (e) {}
+    return y;
+  }
+
   async function exportPdf(date, sharedDoc) {
     if (!window.jspdf) { showToast('PDF generator loading, please try in a moment'); return; }
     const r = await loadReport(date);
@@ -1644,14 +1782,7 @@
     y += 14;
     doc.text(`ALL Loyalty Members: ${r.allMembers||0}`, 40, y);
     y += 16;
-    try {
-      const chartUrl = await occupancyChartImage(date.slice(0, 8) + '01', date);
-      if (chartUrl) {
-        if (y + 160 > 780) { doc.addPage(); y = 45; }
-        doc.addImage(chartUrl, 'PNG', 40, y, W - 80, 140);
-        y += 156;
-      }
-    } catch (e) {}
+    y = await appendDutyArchiveSummary(doc, W, y, date);
 
     // Area checklist tables
     const chkCols = [
@@ -2258,6 +2389,25 @@
       };
     }
 
+    const saveRoomsBtn = document.getElementById('saveRoomsBtn');
+    if (saveRoomsBtn) {
+      saveRoomsBtn.onclick = async () => {
+        const rooms = Number(document.getElementById('hotelRooms').value);
+        const note = document.getElementById('settingsNote');
+        const res = await apiFetch('/api/settings/rooms', {
+          method: 'PUT',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ rooms: rooms })
+        });
+        if (res && res.rooms) {
+          if (note) note.textContent = '';
+          showToast('Total rooms saved');
+        } else if (note) {
+          note.textContent = (res && res.detail) || 'Could not save';
+        }
+      };
+    }
+
     const exportTodayBtn = document.getElementById('exportTodayPdf');
     if (exportTodayBtn) exportTodayBtn.onclick = () => exportPdf(state.report.date);
   }
@@ -2585,6 +2735,7 @@
   }
 
   window.canWrite = canWrite;
+  window.occupancyColor = occupancyColor;
   window.actionItemsHtml = actionItemsHtml;
   window.renderNightInspection = renderNightInspection;
   window.normalizeNightInspection = normalizeNightInspection;

@@ -205,6 +205,41 @@ def test_grand_total_includes_ood(api):
     assert body["calculated"]["grandTotal"] == pytest.approx(83561.14 + 12833.52 + 0 + 100 + 406.96)
 
 
+def test_new_night_uses_the_saved_room_count(api):
+    client, db_path = api
+    admin = _headers(USERS["admin"])
+    night = _headers(USERS["night"])
+    denied = client.put("/api/settings/rooms", json={"rooms": 410}, headers=night)
+    assert denied.status_code == 403
+    updated = client.put("/api/settings/rooms", json={"rooms": 410}, headers=admin)
+    assert updated.status_code == 200
+    assert updated.json()["rooms"] == 410
+
+    payload = dict(OCT_8)
+    payload["date"] = "2026-10-20"
+    assert client.put("/api/night", json=payload, headers=night).status_code == 200
+    body = client.get("/api/night?date=2026-10-20", headers=night).json()
+    assert body["roomsAvailable"] == 410
+
+    con = sqlite3.connect(db_path)
+    try:
+        assert con.execute("select value from settings where key = 'hotel_rooms'").fetchone()[0] == "410"
+    finally:
+        con.close()
+
+
+def test_forecast_occupancy_uses_total_rooms(api):
+    client, _db_path = api
+    payload = dict(OCT_8)
+    payload["date"] = "2026-10-21"
+    payload["forecast"] = [{"totalOcc": "197"}]
+    saved = client.put("/api/night", json=payload, headers=_headers(USERS["night"]))
+    assert saved.status_code == 200
+    first = saved.json()["forecast"][0]
+    assert first["totalOcc"] == "197"
+    assert first["occPct"] == "50"
+
+
 def test_later_save_keeps_stored_rooms_available(api):
     client, db_path = api
     headers = _headers(USERS["night"])

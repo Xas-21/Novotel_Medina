@@ -109,6 +109,33 @@ def test_incidents_and_general_comments_save_separately(api):
     assert report["generalComments"] == [{"comment": "Lobby was quiet", "time": "03:00"}]
 
 
+def test_guest_relation_saves_without_touching_other_reports(api):
+    client, db_path = api
+    staff = _headers(USERS["staff"])
+    night = _headers(USERS["night"])
+    blank = client.get("/api/guest", params={"date": "2099-05-01"}, headers=staff)
+    assert blank.status_code == 200
+    assert "status" not in blank.json()
+    assert blank.json()["membership"][0]["name"] == "Classic"
+    denied = client.put("/api/guest", json={"date": "2099-05-01", "inCharge": "Nora"}, headers=night)
+    assert denied.status_code == 403
+    saved = client.put(
+        "/api/guest",
+        json={"date": "2099-05-01", "inCharge": "Sara", "inHouse": [{"satisfaction": "Non Satisfied", "contacted": "Call", "name": "Ada"}]},
+        headers=staff,
+    )
+    assert saved.status_code == 200
+    assert saved.json()["status"] == "draft"
+    assert saved.json()["inCharge"] == "Sara"
+    assert saved.json()["inHouse"][0]["satisfaction"] == "Non Satisfied"
+    import sqlite3
+    con = sqlite3.connect(db_path)
+    try:
+        assert con.execute("select count(*) from guest_reports").fetchone()[0] == 1
+    finally:
+        con.close()
+
+
 def test_reports_index_requires_login(api):
     client, _ = api
     res = client.get("/api/reports/index")
@@ -193,19 +220,21 @@ def test_create_user_rejects_unknown_role(api):
             "first_name": "Gina",
             "last_name": "Guest",
             "title": "Visitor",
-            "role": "guest",
+            "role": "visitor",
         },
     )
     assert res.status_code == 400
-    assert res.json()["detail"] == "Role must be staff, night, or admin"
+    assert res.json()["detail"] == "Role must be staff, night, guest, or admin"
 
 
 def test_user_form_offers_night_manager_between_staff_and_admin():
     text = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
     staff = '<option value="staff">Staff</option>'
     night = '<option value="night">Night Manager</option>'
+    guest = '<option value="guest">Guest Relation</option>'
     admin = '<option value="admin">Admin</option>'
     assert staff in text
     assert night in text
+    assert guest in text
     assert admin in text
-    assert text.index(staff) < text.index(night) < text.index(admin)
+    assert text.index(staff) < text.index(night) < text.index(guest) < text.index(admin)

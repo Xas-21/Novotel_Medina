@@ -169,6 +169,18 @@ async def init_db():
         if "inspection_json" not in night_cols:
             await db.execute("ALTER TABLE night_reports ADD COLUMN inspection_json TEXT NOT NULL DEFAULT '{}'")
 
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS guest_reports (
+            date TEXT PRIMARY KEY,
+            status TEXT NOT NULL DEFAULT 'draft',
+            submitted_at TEXT,
+            submitted_by TEXT,
+            body_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """)
+
         await db.commit()
 
         # Seed the single admin account (idempotent)

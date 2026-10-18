@@ -101,6 +101,7 @@
       status: data.status || null,
       submittedBy: data.submittedBy || '',
       roomsOccupied: textNum(data.roomsOccupied),
+      roomsAvailable: Number(data.roomsAvailable) || 0,
       roomsRevenue: textNum(data.roomsRevenue),
       fbRevenue: textNum(data.fbRevenue),
       meRevenue: textNum(data.meRevenue),
@@ -215,6 +216,16 @@
     bindNight();
   }
 
+  function forecastOcc(totalOcc){
+    const rooms = Number(draft && draft.roomsAvailable);
+    const raw = String(totalOcc == null ? '' : totalOcc).replace(/,/g, '').trim();
+    if (!rooms || raw === '') return '';
+    const occupied = Number(raw);
+    if (!Number.isFinite(occupied)) return '';
+    const rounded = halfUp(occupied / rooms * 100);
+    return rounded == null ? '' : String(rounded);
+  }
+
   function paint(){
     const body = document.getElementById('nightBody');
     if (!body || !draft) return;
@@ -282,19 +293,16 @@
 
         <div class="dmr-card dmr-section-card">
           <h3>Segments</h3>
-          <div class="night-scroll">
-            <table class="night-figures">
-              <thead><tr><th>Code</th><th>Rooms</th><th>ADR</th></tr></thead>
+          <table class="night-figures night-segments">
+              <thead><tr><th>Code</th><th>Rooms</th></tr></thead>
               <tbody>
                 ${d.segments.map((seg, i) => `
                   <tr>
                     <th>${escapeHtml(seg.code)}</th>
                     <td><input data-seg-rooms="${i}" inputmode="decimal" autocomplete="off" value="${escapeHtml(seg.rooms)}" ${dis}></td>
-                    <td><input data-seg-adr="${i}" inputmode="decimal" autocomplete="off" value="${escapeHtml(seg.adr)}" ${dis}></td>
                   </tr>`).join('')}
               </tbody>
             </table>
-          </div>
           <p class="night-unassigned">Unassigned rooms <strong class="night-calc" data-calc="unassigned">${escapeHtml(formatCount(gap.unassigned))}</strong></p>
         </div>
 
@@ -343,7 +351,9 @@
                 ${d.forecast.map((day, i) => `
                   <tr>
                     <td class="night-date">${escapeHtml(weekday(day.date))} ${escapeHtml(day.date)}</td>
-                    ${FC.map(key => `<td><input data-fc="${key}" data-i="${i}" inputmode="decimal" autocomplete="off" value="${escapeHtml(day[key])}" ${dis}></td>`).join('')}
+                    ${FC.map(key => key === 'occPct'
+                      ? `<td><span class="night-calc" data-fc="occPct" data-i="${i}">${escapeHtml(forecastOcc(day.totalOcc))}</span></td>`
+                      : `<td><input data-fc="${key}" data-i="${i}" inputmode="decimal" autocomplete="off" value="${escapeHtml(day[key])}" ${dis}></td>`).join('')}
                   </tr>`).join('')}
               </tbody>
             </table>
@@ -392,7 +402,13 @@
       uploadNightNotePhoto(t);
       return;
     }
-    if (t.matches('input, textarea, select')) queueNightSave();
+    if (t.matches('input, textarea, select')) {
+      if (t.dataset.fc === 'totalOcc') {
+        const span = t.closest('tr') && t.closest('tr').querySelector('[data-fc="occPct"]');
+        if (span) span.textContent = forecastOcc(t.value);
+      }
+      queueNightSave();
+    }
   }
 
   function onClick(e){
@@ -620,8 +636,9 @@
     draft.forecast.forEach((day, i) => {
       FC.forEach(key => {
         const el = form.querySelector(`[data-fc="${key}"][data-i="${i}"]`);
-        if (el) day[key] = el.value;
+        if (el && el.tagName === 'INPUT') day[key] = el.value;
       });
+      day.occPct = forecastOcc(day.totalOcc);
     });
     draft.groups = Array.from(form.querySelectorAll('[data-group]')).map(row => ({
       day: row.querySelector('[data-g="day"]').value,
@@ -1072,21 +1089,10 @@
     return y + 152;
   }
 
-  async function exportNightAnalysisPdf(){
-    const data = nightPack;
+  async function appendNightAnalysisCharts(doc, W, y, data){
     const charts = window.NovotelCharts;
-    const pdf = window.NovotelPdf;
-    if (!data || !window.jspdf || !charts || !pdf) return;
+    if (!data || !charts || !window.Chart) return y;
     const occ = (data.occupancy || []).map(value => value == null ? 0 : value);
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-    const W = doc.internal.pageSize.getWidth();
-    const logo = await pdf.getLogoDataUrl();
-    let y = pdf.pdfHeader(doc, W, logo, 'NIGHT ANALYSIS');
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.text((state.periodFrom || '') + '  to  ' + (state.periodTo || data.date || ''), 40, y);
-    y += 16;
     const occImg = charts.chartImage(canvas => {
       const options = charts.comboOptions();
       options.animation = false;
@@ -1138,7 +1144,24 @@
         options
       });
     });
-    pdfChart(doc, W, y, 'Segments', segImg);
+    return pdfChart(doc, W, y, 'Segments', segImg);
+  }
+
+  async function exportNightAnalysisPdf(){
+    const data = nightPack;
+    const pdf = window.NovotelPdf;
+    if (!data || !window.jspdf || !window.NovotelCharts || !pdf) return;
+    const state = window.state || {};
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const W = doc.internal.pageSize.getWidth();
+    const logo = await pdf.getLogoDataUrl();
+    let y = pdf.pdfHeader(doc, W, logo, 'NIGHT ANALYSIS');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.text((state.periodFrom || '') + '  to  ' + (state.periodTo || data.date || ''), 40, y);
+    y += 16;
+    y = await appendNightAnalysisCharts(doc, W, y, data);
     pdf.addPdfFooter(doc, W, 'Novotel — Night Analysis');
     doc.save('novotel-night-analysis-' + (data.date || 'report') + '.pdf');
   }
@@ -1165,36 +1188,59 @@
     y += 16;
     const c = data.calculated || {};
     const m = data.mtd || {};
-    const gap = data.segmentGap || {};
+    const asEntered = value => value == null || value === '' ? '' : String(value);
     const rows = [
-      ['Rooms occupied', String(data.roomsOccupied ?? ''), String(m.roomsOccupied ?? '')],
+      ['Day', dayNumber(data.date), ''],
+      ['Rooms occupied', asEntered(data.roomsOccupied), formatCount(m.roomsOccupied)],
       ['Occupancy', formatPercent(c.occupancy), formatPercent(m.occupancy)],
+      ['Rooms revenue', asEntered(data.roomsRevenue), formatMoney(m.roomsRevenue)],
       ['ADR', formatMoney(c.adr), formatMoney(m.adr)],
       ['RevPAR', formatMoney(c.revpar), formatMoney(m.revpar)],
+      ['F&B', asEntered(data.fbRevenue), formatMoney(m.fbRevenue)],
+      ['M&E', asEntered(data.meRevenue), formatMoney(m.meRevenue)],
+      ['OOD', asEntered(data.oodRevenue), formatMoney(m.oodRevenue)],
+      ['Other', asEntered(data.otherRevenue), formatMoney(m.otherRevenue)],
       ['Grand total', formatMoney(c.grandTotal), formatMoney(m.grandTotal)]
     ];
     y = pdf.pdfTable(doc, W, y, [
       {key:'ITEM', label:'', w:180},
       {key:'LAST', label:'LAST NIGHT', w:160},
       {key:'MTD', label:'MTD', w:160}
-    ], rows.map(row => ({ITEM: row[0], LAST: row[1], MTD: row[2]})));
-    y += 8;
-    const segmentRows = (data.segments || []).map(seg => ({CODE: seg.code, ROOMS: String(seg.rooms ?? ''), ADR: String(seg.adr ?? '')}));
-    segmentRows.push({CODE: 'Unassigned', ROOMS: String(gap.unassigned ?? ''), ADR: ''});
+    ], rows.map(row => {
+      const item = {ITEM: row[0], LAST: row[1], MTD: row[2]};
+      if (row[0] === 'Occupancy' && window.occupancyColor) {
+        item.LAST_color = window.occupancyColor(row[1]);
+        item.MTD_color = window.occupancyColor(row[2]);
+      }
+      return item;
+    }));
+    y += 12;
+    const analysis = await window.apiFetch('/api/night/analysis?date=' + encodeURIComponent(date) + '&range=month');
+    y = await appendNightAnalysisCharts(doc, W, y, analysis);
+    const gap = data.segmentGap || {};
+    const segmentRows = (data.segments || []).map(seg => ({CODE: seg.code, ROOMS: String(seg.rooms ?? '')}));
+    segmentRows.push({CODE: 'Unassigned', ROOMS: String(gap.unassigned ?? '')});
     y = pdf.pdfTable(doc, W, y, [
-      {key:'CODE', label:'SEGMENT', w:160},
-      {key:'ROOMS', label:'ROOMS', w:120},
-      {key:'ADR', label:'ADR', w:120}
+      {key:'CODE', label:'SEGMENT', w:260},
+      {key:'ROOMS', label:'ROOMS', w:200}
     ], segmentRows);
     y += 8;
     y = pdf.pdfTable(doc, W, y, [
-      {key:'DATE', label:'FORECAST', w:110},
-      {key:'OCC', label:'OCC', w:70},
-      {key:'ARR', label:'ARR', w:70},
-      {key:'DEP', label:'DEP', w:70},
-      {key:'PCT', label:'OCC %', w:70}
+      {key:'DATE', label:'DATE', w:78},
+      {key:'OCC', label:'OCC', w:48},
+      {key:'ARR', label:'ARR', w:48},
+      {key:'DEP', label:'DEP', w:48},
+      {key:'PCT', label:'OCC %', w:52},
+      {key:'COMP', label:'COMP ROOMS', w:78},
+      {key:'RATE', label:'AVG RATE', w:78}
     ], (data.forecast || []).map(day => ({
-      DATE: day.date, OCC: String(day.totalOcc ?? ''), ARR: String(day.arrRooms ?? ''), DEP: String(day.depRooms ?? ''), PCT: String(day.occPct ?? '')
+      DATE: day.date,
+      OCC: String(day.totalOcc ?? ''),
+      ARR: String(day.arrRooms ?? ''),
+      DEP: String(day.depRooms ?? ''),
+      PCT: String(day.occPct ?? ''),
+      COMP: String(day.compRooms ?? ''),
+      RATE: String(day.averageRate ?? '')
     })));
     y += 8;
     if ((data.groups || []).length) {
@@ -1278,7 +1324,7 @@
 
   let fullPack = null;
 
-  function dashboardStats(duty, night, index, from, to) {
+  function dashboardStats(duty, night, index, from, to, guest) {
     const dutyRows = (index || []).filter(row => row.date >= from && row.date <= to);
     const dutySubmitted = dutyRows.filter(row => row.status === 'submitted').length;
     const dutyMissing = Math.max(0, spanDays(from, to) - dutySubmitted);
@@ -1298,7 +1344,11 @@
       nightFiled: nightFiled,
       nightMissing: nightMissing,
       rooms: formatMoney(revenue.rooms || 0),
-      revenue: revenue
+      revenue: revenue,
+      guestSubmitted: guest ? guest.submitted : 0,
+      guestMissing: guest ? guest.missing : 0,
+      guestNotSatisfied: guest ? guest.notSatisfied : 0,
+      guestDeparture: guest && guest.avgDeparture != null ? guest.avgDeparture : '—'
     };
   }
 
@@ -1320,7 +1370,11 @@
       { tone: 'teal', value: stats.avgAdr, label: 'Avg ADR' },
       { tone: 'ok', value: stats.nightFiled, label: 'Night reports submitted' },
       { tone: 'danger', value: stats.nightMissing, label: 'Nights not submitted' },
-      { tone: 'navy', value: stats.rooms, label: 'Night rooms revenue' }
+      { tone: 'navy', value: stats.rooms, label: 'Night rooms revenue' },
+      { tone: 'ok', value: stats.guestSubmitted || 0, label: 'Guest Relation submitted' },
+      { tone: 'danger', value: stats.guestMissing || 0, label: 'Guest Relation days not submitted' },
+      { tone: 'warn', value: stats.guestNotSatisfied || 0, label: 'Not satisfied guests' },
+      { tone: 'teal', value: stats.guestDeparture == null ? '—' : stats.guestDeparture, label: 'Avg departure score' }
     ];
   }
 
@@ -1392,16 +1446,17 @@
     const body = document.getElementById('fullBody');
     if (!body) return;
     const range = { from: state.periodFrom, to: state.periodTo };
-    const [duty, night] = await Promise.all([
+    const [duty, night, guest] = await Promise.all([
       window.apiFetch('/api/reports/analysis?' + window.periodQuery()),
-      window.apiFetch('/api/night/analysis?' + window.periodQuery())
+      window.apiFetch('/api/night/analysis?' + window.periodQuery()),
+      window.apiFetch('/api/guest/analysis?' + window.periodQuery())
     ]);
     const index = await window.apiFetch('/api/reports/index');
     relabel(night);
     if (!document.getElementById('fullBody')) return;
-    const stats = dashboardStats(duty, night, index || [], range.from, range.to);
+    const stats = dashboardStats(duty, night, index || [], range.from, range.to, guest);
     const revenue = stats.revenue;
-    fullPack = { duty: duty, night: night, index: index || [], from: range.from, to: range.to, stats: stats };
+    fullPack = { duty: duty, night: night, guest: guest, index: index || [], from: range.from, to: range.to, stats: stats };
     window.currentDutyAnalysis = duty;
     const charts = window.NovotelCharts;
     body.innerHTML = `
@@ -1413,6 +1468,7 @@
         <div class="dmr-card dmr-chart-card"><h3>Duty reports</h3><div class="chart-box chart-box-pie"><canvas id="pieDuty"></canvas></div></div>
         <div class="dmr-card dmr-chart-card"><h3>Night reports</h3><div class="chart-box chart-box-pie"><canvas id="pieNight"></canvas></div></div>
         <div class="dmr-card dmr-chart-card"><h3>Revenue Mix</h3><div class="chart-box chart-box-pie"><canvas id="pieRevenue"></canvas></div></div>
+        <div class="dmr-card dmr-chart-card"><h3>Guest Relation</h3><div class="chart-box chart-box-pie"><canvas id="pieGuest"></canvas></div></div>
       </div>
       ${window.actionItemsHtml ? window.actionItemsHtml((duty && duty.actionItems) || []) : ''}
       <div class="dmr-card dmr-chart-card"><h3>Duty occupancy and ALL Loyalty Members</h3><div class="chart-box"><canvas id="fullOcc"></canvas></div></div>
@@ -1452,6 +1508,7 @@
     drawPie('pieDuty', ['Submitted', 'Not submitted'], [stats.dutySubmitted, stats.dutyMissing], ['#4F7A5B', '#E7D3D0']);
     drawPie('pieNight', ['Submitted', 'Not submitted'], [stats.nightFiled, stats.nightMissing], ['#0f766e', '#E7D3D0']);
     drawPie('pieRevenue', ['Rooms', 'F&B', 'M&E', 'OOD', 'Other'], [revenue.rooms || 0, revenue.fb || 0, revenue.me || 0, revenue.ood || 0, revenue.other || 0], ['#1e22aa', '#14b8a6', '#7c6bf2', '#A8814F', '#8aa0b2']);
+    drawPie('pieGuest', ['Submitted', 'Not submitted'], [stats.guestSubmitted || 0, stats.guestMissing || 0], ['#1e22aa', '#E7D3D0']);
     const revOptions = charts.chartFrame();
     charts.mountChart(document.getElementById('fullRevenue'), {
       type: 'bar',
@@ -1481,13 +1538,14 @@
     y += 16;
     const duty = pack.duty || {};
     const night = pack.night || {};
-    const stats = pack.stats || dashboardStats(duty, night, pack.index, pack.from, pack.to);
+    const stats = pack.stats || dashboardStats(duty, night, pack.index, pack.from, pack.to, pack.guest);
     y = pdfStatCards(doc, W, y, dashboardCards(stats));
     const revenueMix = stats.revenue || {};
     y = pdfPieRow(doc, W, y, [
       { title: 'Duty reports', image: pieImage(charts, ['Submitted', 'Not submitted'], [stats.dutySubmitted, stats.dutyMissing], ['#4F7A5B', '#E7D3D0']) },
       { title: 'Night reports', image: pieImage(charts, ['Submitted', 'Not submitted'], [stats.nightFiled, stats.nightMissing], ['#0f766e', '#E7D3D0']) },
-      { title: 'Revenue Mix', image: pieImage(charts, ['Rooms', 'F&B', 'M&E', 'OOD', 'Other'], [revenueMix.rooms || 0, revenueMix.fb || 0, revenueMix.me || 0, revenueMix.ood || 0, revenueMix.other || 0], ['#1e22aa', '#14b8a6', '#7c6bf2', '#A8814F', '#8aa0b2']) }
+      { title: 'Revenue Mix', image: pieImage(charts, ['Rooms', 'F&B', 'M&E', 'OOD', 'Other'], [revenueMix.rooms || 0, revenueMix.fb || 0, revenueMix.me || 0, revenueMix.ood || 0, revenueMix.other || 0], ['#1e22aa', '#14b8a6', '#7c6bf2', '#A8814F', '#8aa0b2']) },
+      { title: 'Guest Relation', image: pieImage(charts, ['Submitted', 'Not submitted'], [stats.guestSubmitted || 0, stats.guestMissing || 0], ['#1e22aa', '#E7D3D0']) }
     ]);
     y += 8;
     const series = window.occupancySeries(pack.index, pack.from, pack.to);

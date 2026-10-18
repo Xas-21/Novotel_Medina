@@ -20,6 +20,7 @@
   --radius: 4px;
 }
 
+*, *::before, *::after { box-sizing: border-box; }
 button, input, select, textarea { font-family: inherit; }
 body, html {
   margin: 0;
@@ -233,6 +234,7 @@ h1, h2, h3 {
 
 .dmr-field {
   margin-bottom: 12px;
+  min-width: 0;
 }
 .dmr-field label {
   display: block;
@@ -245,6 +247,8 @@ h1, h2, h3 {
 }
 .dmr-field input, .dmr-field select, .dmr-field textarea {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 8px 10px;
@@ -269,8 +273,12 @@ h1, h2, h3 {
   flex-wrap: wrap;
 }
 .dmr-row > * {
-  flex: 1;
-  min-width: 120px;
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.dmr-row > .dmr-btn,
+.dmr-row > button {
+  flex: 0 0 auto;
 }
 
 .dmr-section-card {
@@ -407,8 +415,9 @@ h1, h2, h3 {
   border-bottom: none;
 }
 .dmr-dyn-row input, .dmr-dyn-row textarea {
-  flex: 1;
-  min-width: 110px;
+  flex: 1 1 110px;
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 7px 10px;
@@ -1206,7 +1215,8 @@ body.nav-open { overflow: hidden; }
 .night-figures input,
 .night-forecast input {
   width: 100%;
-  min-width: 88px;
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 7px 8px;
@@ -1221,18 +1231,21 @@ body.nav-open { overflow: hidden; }
   color: var(--navy);
 }
 .night-unassigned { margin: 10px 0 0; font-size: 13.5px; }
-.night-scroll { overflow-x: auto; }
+.night-scroll { overflow-x: auto; max-width: 100%; }
+.night-segments { width: auto; }
+.night-segments input { width: 140px; }
 .night-forecast { min-width: 720px; font-size: 12.5px; }
 .night-date { white-space: nowrap; color: var(--ink-soft); font-size: 12px; }
 .night-record,
 .night-vip {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   align-items: end;
   margin-bottom: 10px;
 }
-.night-record { grid-template-columns: 1fr 1.4fr 0.8fr 1fr 1fr auto; }
-.night-vip { grid-template-columns: 1.1fr 0.7fr 0.7fr 0.7fr 1fr auto; }
+.night-record { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1fr) auto; }
+#guestForm .night-record { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.night-vip { grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.7fr) minmax(0, 0.7fr) minmax(0, 0.7fr) minmax(0, 1fr) auto; }
 .night-record .dmr-field,
 .night-vip .dmr-field { margin-bottom: 0; }
 .night-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 14px; }

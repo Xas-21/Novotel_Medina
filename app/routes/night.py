@@ -150,6 +150,22 @@ async def _submitted_by(db: aiosqlite.Connection, user_id: str) -> str:
     return name
 
 
+def _forecast_with_occupancy(forecast, rooms_available):
+    rooms = int(rooms_available or 0)
+    for day in forecast:
+        raw = str(day.get("totalOcc") if day.get("totalOcc") is not None else "").replace(",", "").strip()
+        if raw == "" or rooms <= 0:
+            day["occPct"] = ""
+            continue
+        try:
+            occupied = float(raw)
+        except ValueError:
+            day["occPct"] = ""
+            continue
+        day["occPct"] = str(money(occupied / rooms * 100))
+    return forecast
+
+
 def _forecast_for_save(report_date, incoming, existing):
     if incoming is None:
         return existing if existing is not None else _blank_forecast(report_date)
@@ -183,7 +199,7 @@ async def _response(db: aiosqlite.Connection, date_text: str, row):
         ood = row["ood_revenue"]
         other = row["other_revenue"]
         segments = _loads(row["segments_json"], _blank_segments())
-        forecast = _loads(row["forecast_json"], _blank_forecast(report_date))
+        forecast = _forecast_with_occupancy(_loads(row["forecast_json"], _blank_forecast(report_date)), rooms_available)
         groups = _loads(row["groups_json"], [])
         vip = _loads(row["vip_json"], [])
         checklist = _loads(row["checklist_json"], _blank_checklist())
@@ -394,7 +410,10 @@ async def save_night(
     existing_inspection = _loads(row["inspection_json"], None) if row and "inspection_json" in row.keys() else None
 
     segments = data.segments if data.segments is not None else (existing_segments if existing_segments is not None else _blank_segments())
-    forecast = _forecast_for_save(report_date, data.forecast, existing_forecast)
+    forecast = _forecast_with_occupancy(
+        _forecast_for_save(report_date, data.forecast, existing_forecast),
+        row["rooms_available"] if row else await _hotel_rooms(db),
+    )
     groups = data.groups if data.groups is not None else (existing_groups if existing_groups is not None else [])
     vip = data.vip if data.vip is not None else (existing_vip if existing_vip is not None else [])
     checklist = data.checklist if data.checklist is not None else (existing_checklist if existing_checklist is not None else _blank_checklist())
