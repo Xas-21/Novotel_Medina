@@ -154,6 +154,12 @@ async def init_db():
             await db.execute("ALTER TABLE users ADD COLUMN first_name TEXT NOT NULL DEFAULT ''")
             await db.execute("ALTER TABLE users ADD COLUMN last_name TEXT NOT NULL DEFAULT ''")
             await db.execute("ALTER TABLE users ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+        if 'email' not in cols:
+            await db.execute("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
+        if 'phone' not in cols:
+            await db.execute("ALTER TABLE users ADD COLUMN phone TEXT NOT NULL DEFAULT ''")
+        if 'session_version' not in cols:
+            await db.execute("ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0")
             await db.commit()
 
         report_cols = [r[1] for r in await (await db.execute("PRAGMA table_info(reports)")).fetchall()]

@@ -234,6 +234,63 @@ def test_duty_reads_require_login(api):
     assert client.get("/api/reports/analysis", params={"date": "2026-10-08", "range": "week"}).status_code == 401
 
 
+def test_admin_can_save_contact_and_reset_password(api):
+    client, _db_path = api
+    admin = _headers(USERS["admin"])
+    created = client.post(
+        "/api/auth/users",
+        headers=admin,
+        json={
+            "username": "edit.user",
+            "password": "old-pass",
+            "first_name": "Edit",
+            "last_name": "User",
+            "title": "Duty Manager",
+            "role": "staff",
+        },
+    )
+    assert created.status_code == 200
+    user_id = created.json()["id"]
+
+    denied = client.patch(
+        f"/api/auth/users/{user_id}",
+        headers=_headers(USERS["staff"]),
+        json={"email": "a@b.co", "phone": "0500000000"},
+    )
+    assert denied.status_code == 403
+
+    saved = client.patch(
+        f"/api/auth/users/{user_id}",
+        headers=admin,
+        json={"email": "edit.user@novotel.test", "phone": "0551234567"},
+    )
+    assert saved.status_code == 200
+    assert saved.json()["email"] == "edit.user@novotel.test"
+    assert saved.json()["phone"] == "0551234567"
+
+    mismatch = client.post(
+        f"/api/auth/users/{user_id}/password",
+        headers=admin,
+        json={"password": "new-pass", "confirm": "other"},
+    )
+    assert mismatch.status_code == 400
+    signed_in = client.post("/api/auth/login", json={"username": "edit.user", "password": "old-pass"})
+    assert signed_in.status_code == 200
+    old_token = signed_in.json()["token"]
+
+    reset = client.post(
+        f"/api/auth/users/{user_id}/password",
+        headers=admin,
+        json={"password": "new-pass", "confirm": "new-pass"},
+    )
+    assert reset.status_code == 200
+    assert client.post("/api/auth/login", json={"username": "edit.user", "password": "old-pass"}).status_code == 401
+    assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {old_token}"}).status_code == 401
+    fresh = client.post("/api/auth/login", json={"username": "edit.user", "password": "new-pass"})
+    assert fresh.status_code == 200
+    assert client.get("/api/auth/me", headers={"Authorization": f"Bearer {fresh.json()['token']}"}).status_code == 200
+
+
 def test_create_user_rejects_unknown_role(api):
     client, _ = api
     res = client.post(

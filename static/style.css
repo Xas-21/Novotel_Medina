@@ -1083,9 +1083,12 @@ body.nav-open { overflow: hidden; }
   gap: 12px;
   flex-wrap: wrap;
 }
-.user-row:last-child {
-  border-bottom: none;
-}
+.user-block { border-bottom: 1px solid var(--line); }
+.user-block:last-child { border-bottom: none; }
+.user-row { border-bottom: none; }
+.user-edit { display: none; padding: 0 20px 16px; }
+.user-edit.open { display: block; }
+.user-edit-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
 .user-avatar {
   width: 38px;
   height: 38px;

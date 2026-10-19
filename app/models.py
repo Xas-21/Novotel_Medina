@@ -20,6 +20,16 @@ class UserResponse(BaseModel):
     last_name: str
     title: str
     role: str
+    email: str = ""
+    phone: str = ""
+
+class UserContactUpdate(BaseModel):
+    email: str = ""
+    phone: str = ""
+
+class UserPasswordReset(BaseModel):
+    password: str
+    confirm: str
 
 class LoginResponse(BaseModel):
     token: str

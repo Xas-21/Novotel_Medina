@@ -297,11 +297,7 @@
     }
     try {
       const res = await fetch(url, options);
-      if (res.status === 401) {
-        state.token = "";
-        localStorage.removeItem('novotel_token');
-        state.user = null;
-      }
+      if (res.status === 401 && state.token) logout();
       return await res.json();
     } catch (err) {
       console.error("API error:", err);
@@ -356,11 +352,19 @@
     try {
       ws = new WebSocket(wsUrl);
       ws.onopen = () => { state.wsConnected = true; updateSyncIndicator(); };
-      ws.onclose = () => { state.wsConnected = false; updateSyncIndicator(); setTimeout(initWebSocket, 3000); };
+      ws.onclose = () => {
+        state.wsConnected = false;
+        updateSyncIndicator();
+        if (state.token) setTimeout(initWebSocket, 3000);
+      };
       ws.onerror = () => { state.wsConnected = false; updateSyncIndicator(); };
       ws.onmessage = async (e) => {
         try {
           const msg = JSON.parse(e.data);
+          if (msg.event === 'PASSWORD_CHANGED' && state.user && msg.userId === state.user.id) {
+            logout();
+            return;
+          }
           if (msg.date === state.selectedDate && state.section === 'duty' && state.view === 'today') {
             // Report saves bounce back on the socket. Re-rendering destroys the input being typed in.
             if (msg.event === 'REPORT_UPDATED' || msg.event === 'NIGHT_REPORT_UPDATED') return;
@@ -454,8 +458,43 @@
     setNavOpen(false);
   }
 
+  const IDLE_MS = 15 * 60 * 1000;
+  let idleTimer = null;
+
+  function noteActivity() {
+    if (!state.token) return;
+    localStorage.setItem('novotel_active', String(Date.now()));
+    armIdle();
+  }
+
+  function idleDue() {
+    const stamp = Number(localStorage.getItem('novotel_active') || 0);
+    return !!(state.token && stamp && Date.now() - stamp >= IDLE_MS);
+  }
+
+  function armIdle() {
+    if (idleTimer) clearTimeout(idleTimer);
+    if (!state.token) return;
+    const stamp = Number(localStorage.getItem('novotel_active') || Date.now());
+    idleTimer = setTimeout(() => { if (idleDue()) logout(); else armIdle(); }, Math.max(IDLE_MS - (Date.now() - stamp), 1000));
+  }
+
+  function watchIdle() {
+    if (document.documentElement._idleWatch) return;
+    document.documentElement._idleWatch = true;
+    ['pointerdown', 'keydown', 'scroll', 'touchstart'].forEach(name => {
+      document.addEventListener(name, noteActivity, { passive: true, capture: true });
+    });
+    window.addEventListener('storage', (e) => { if (e.key === 'novotel_active') armIdle(); });
+  }
+
   async function init() {
     bindNavDrawer();
+    watchIdle();
+    if (state.token && idleDue()) {
+      logout();
+      return;
+    }
     if (state.token) {
       const me = await apiFetch('/api/auth/me');
       if (me && me.id) {
@@ -514,6 +553,8 @@
     state.token = "";
     state.user = null;
     localStorage.removeItem('novotel_token');
+    localStorage.removeItem('novotel_active');
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
     if (ws) { try { ws.close(); } catch(e){} }
     state.wsConnected = false;
     showLogin();
@@ -524,6 +565,7 @@
     document.getElementById('dmrRoot').style.display = 'flex';
     state.section = 'full';
     state.view = 'today';
+    noteActivity();
     initWebSocket();
     state.loading = true;
     render();
@@ -1538,19 +1580,92 @@
       return;
     }
     el.innerHTML = users.map(u => `
-      <div class="user-row">
-        <div class="user-avatar">${escapeHtml((u.first_name || '?').charAt(0).toUpperCase())}</div>
-        <div class="user-info">
-          <div class="user-name">${escapeHtml(fullName(u))}</div>
-          <div class="user-meta">@${escapeHtml(u.username)}${u.title ? ' · ' + escapeHtml(u.title) : ''}</div>
+      <div class="user-block">
+        <div class="user-row">
+          <div class="user-avatar">${escapeHtml((u.first_name || '?').charAt(0).toUpperCase())}</div>
+          <div class="user-info">
+            <div class="user-name">${escapeHtml(fullName(u))}</div>
+            <div class="user-meta">@${escapeHtml(u.username)}${u.title ? ' · ' + escapeHtml(u.title) : ''}</div>
+          </div>
+          <span class="user-role-badge ${u.role==='admin'?'user-role-admin':'user-role-staff'}">${u.role==='admin'?'Admin':(u.role==='night'?'Night Manager':(u.role==='guest'?'Guest Relation':'Staff'))}</span>
+          <button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-user-edit="${escapeHtml(u.id)}">Edit</button>
+          ${state.user && u.id !== state.user.id ? `<button class="dmr-del" data-user-del="${u.id}" title="Delete user">✕</button>` : ''}
         </div>
-        <span class="user-role-badge ${u.role==='admin'?'user-role-admin':'user-role-staff'}">${u.role==='admin'?'Admin':(u.role==='night'?'Night Manager':(u.role==='guest'?'Guest Relation':'Staff'))}</span>
-        ${state.user && u.id !== state.user.id ? `<button class="dmr-del" data-user-del="${u.id}" title="Delete user">✕</button>` : ''}
+        <div class="user-edit" data-user-panel="${escapeHtml(u.id)}">
+          <div class="dmr-row">
+            <div class="dmr-field"><label>Email</label><input data-user-email value="${escapeHtml(u.email || '')}" autocomplete="off"></div>
+            <div class="dmr-field"><label>Phone number</label><input data-user-phone value="${escapeHtml(u.phone || '')}" autocomplete="off"></div>
+          </div>
+          <div class="user-edit-actions">
+            <button type="button" class="dmr-btn dmr-btn-primary dmr-btn-sm" data-user-save="${escapeHtml(u.id)}">Save</button>
+            <button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-user-reset="${escapeHtml(u.id)}">Reset Password</button>
+          </div>
+          <div data-user-pass="${escapeHtml(u.id)}" hidden>
+            <div class="dmr-row">
+              <div class="dmr-field"><label>New Password</label><input type="password" data-user-pass1 autocomplete="new-password"></div>
+              <div class="dmr-field"><label>Confirm Password</label><input type="password" data-user-pass2 autocomplete="new-password"></div>
+            </div>
+            <button type="button" class="dmr-btn dmr-btn-primary dmr-btn-sm" data-user-pass-save="${escapeHtml(u.id)}">Save</button>
+          </div>
+        </div>
       </div>`).join('');
 
     el.querySelectorAll('[data-user-del]').forEach(btn => {
       btn.onclick = () => deleteUser(btn.dataset.userDel);
     });
+    el.querySelectorAll('[data-user-edit]').forEach(btn => {
+      btn.onclick = () => {
+        const panel = el.querySelector('[data-user-panel="' + btn.dataset.userEdit + '"]');
+        const open = panel.classList.contains('open');
+        el.querySelectorAll('.user-edit.open').forEach(node => node.classList.remove('open'));
+        if (!open) panel.classList.add('open');
+      };
+    });
+    el.querySelectorAll('[data-user-save]').forEach(btn => {
+      btn.onclick = () => saveUserContact(btn.dataset.userSave);
+    });
+    el.querySelectorAll('[data-user-reset]').forEach(btn => {
+      btn.onclick = () => {
+        const box = el.querySelector('[data-user-pass="' + btn.dataset.userReset + '"]');
+        box.hidden = !box.hidden;
+      };
+    });
+    el.querySelectorAll('[data-user-pass-save]').forEach(btn => {
+      btn.onclick = () => saveUserPassword(btn.dataset.userPassSave);
+    });
+  }
+
+  async function saveUserContact(id) {
+    const panel = document.querySelector('[data-user-panel="' + id + '"]');
+    const res = await apiFetch('/api/auth/users/' + id, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        email: panel.querySelector('[data-user-email]').value.trim(),
+        phone: panel.querySelector('[data-user-phone]').value.trim()
+      })
+    });
+    if (res && res.id) { showToast('Saved'); loadUsers(); }
+    else if (res && res.detail) showToast(res.detail);
+  }
+
+  async function saveUserPassword(id) {
+    const panel = document.querySelector('[data-user-pass="' + id + '"]');
+    const password = panel.querySelector('[data-user-pass1]').value;
+    const confirm = panel.querySelector('[data-user-pass2]').value;
+    if (password !== confirm) { showToast('Passwords do not match'); return; }
+    const res = await apiFetch('/api/auth/users/' + id + '/password', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ password: password, confirm: confirm })
+    });
+    if (res && res.success) {
+      if (state.user && id === state.user.id) { logout(); return; }
+      panel.querySelector('[data-user-pass1]').value = '';
+      panel.querySelector('[data-user-pass2]').value = '';
+      panel.hidden = true;
+      showToast('Password updated');
+    } else if (res && res.detail) showToast(res.detail);
   }
 
   async function createUser() {
