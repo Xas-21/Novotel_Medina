@@ -59,6 +59,7 @@
     modalImg: null,
     confirmDeleteId: null,
     confirmDeleteReport: null,
+    confirmDeleteUser: null,
     actionPopup: false,
     photoTarget: null,
     submitGaps: null,
@@ -687,6 +688,49 @@
       document.getElementById('delRepConfirm').onclick = async () => {
         state.confirmDeleteReport = null;
         await deleteReport(date);
+      };
+    }
+
+    if (state.confirmDeleteUser) {
+      const target = state.confirmDeleteUser;
+      const phrase = 'Sudo ' + target.username;
+      const bg = document.createElement('div');
+      bg.className = 'dmr-modal-bg';
+      bg.innerHTML = target.step === 'type' ? `
+        <div class="dmr-dialog">
+          <h3>Confirm deleting</h3>
+          <p>Type <b class="user-delete-phrase">${escapeHtml(phrase)}</b> to delete this user.</p>
+          <input id="userDeletePhrase" autocomplete="off">
+          <p id="userDeleteMiss" class="night-note" hidden>Type the red text exactly.</p>
+          <div class="dmr-dialog-actions">
+            <button class="dmr-btn dmr-btn-ghost dmr-btn-sm" id="delUserCancel" type="button">Cancel</button>
+            <button class="dmr-btn dmr-btn-primary dmr-btn-sm" id="delUserGo" type="button" style="background:var(--danger);">Delete</button>
+          </div>
+        </div>` : `
+        <div class="dmr-dialog">
+          <h3>Delete this user?</h3>
+          <p>Are you sure you want to delete this user?</p>
+          <div class="dmr-dialog-actions">
+            <button class="dmr-btn dmr-btn-ghost dmr-btn-sm" id="delUserCancel" type="button">Cancel</button>
+            <button class="dmr-btn dmr-btn-primary dmr-btn-sm" id="delUserNext" type="button">Confirm</button>
+          </div>
+        </div>`;
+      document.getElementById('dmrRoot').appendChild(bg);
+      const close = () => { state.confirmDeleteUser = null; renderOverlays(); };
+      document.getElementById('delUserCancel').onclick = close;
+      bg.addEventListener('click', (e) => { if (e.target === bg) close(); });
+      const next = document.getElementById('delUserNext');
+      if (next) next.onclick = () => { target.step = 'type'; renderOverlays(); };
+      const go = document.getElementById('delUserGo');
+      if (go) go.onclick = async () => {
+        const typed = document.getElementById('userDeletePhrase').value;
+        if (typed !== phrase) {
+          document.getElementById('userDeleteMiss').hidden = false;
+          return;
+        }
+        state.confirmDeleteUser = null;
+        renderOverlays();
+        await deleteUser(target.id);
       };
     }
 
@@ -1589,7 +1633,7 @@
           </div>
           <span class="user-role-badge ${u.role==='admin'?'user-role-admin':'user-role-staff'}">${u.role==='admin'?'Admin':(u.role==='night'?'Night Manager':(u.role==='guest'?'Guest Relation':'Staff'))}</span>
           <button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-user-edit="${escapeHtml(u.id)}">Edit</button>
-          ${state.user && u.id !== state.user.id ? `<button class="dmr-del" data-user-del="${u.id}" title="Delete user">✕</button>` : ''}
+          ${state.user && u.id !== state.user.id ? `<button class="dmr-del" data-user-del="${u.id}" data-user-name="${escapeHtml(u.username)}" title="Delete user">✕</button>` : ''}
         </div>
         <div class="user-edit" data-user-panel="${escapeHtml(u.id)}">
           <div class="dmr-row">
@@ -1611,7 +1655,10 @@
       </div>`).join('');
 
     el.querySelectorAll('[data-user-del]').forEach(btn => {
-      btn.onclick = () => deleteUser(btn.dataset.userDel);
+      btn.onclick = () => {
+        state.confirmDeleteUser = { id: btn.dataset.userDel, username: btn.dataset.userName, step: 'ask' };
+        renderOverlays();
+      };
     });
     el.querySelectorAll('[data-user-edit]').forEach(btn => {
       btn.onclick = () => {
