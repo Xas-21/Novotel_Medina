@@ -602,7 +602,15 @@
       y += rowH;
       if (person.facts) y = writeFacts(doc, W, y, person.facts);
       (person.notes || []).forEach(note => { y = writeNote(doc, W, y, note.label, note.text); });
-      y += 3;
+      if (ri < people.length - 1 && y < 750) {
+        y += 8;
+        doc.setDrawColor(196, 190, 178);
+        doc.setLineWidth(0.7);
+        doc.line(x + 4, y, x + width - 4, y);
+        y += 10;
+      } else {
+        y += 6;
+      }
     });
     return y + 8;
   }
