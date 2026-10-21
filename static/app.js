@@ -599,6 +599,10 @@
     const admin = state.user && state.user.role === 'admin';
     if (usersBtn) usersBtn.style.display = admin ? 'flex' : 'none';
     if (settingsBtn) settingsBtn.style.display = admin ? 'flex' : 'none';
+    const guestRole = state.user && state.user.role === 'guest';
+    document.querySelectorAll('[data-section="duty"], [data-section="night"], [data-nav-for="duty"], [data-nav-for="night"], [data-nav-for="general"]').forEach(el => {
+      el.style.display = guestRole ? 'none' : '';
+    });
 
     document.querySelectorAll('.dmr-navbtn').forEach(b => {
       const sectionOk = !b.dataset.section || b.dataset.section === state.section;
