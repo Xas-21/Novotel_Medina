@@ -528,3 +528,37 @@ def test_night_inspection_roundtrip(api):
 
     blank = client.get("/api/night?date=2026-10-03", headers=headers)
     assert blank.json()["inspection"] is None
+
+
+def test_deleted_user_token_is_rejected(api):
+    client, db_path = api
+    headers = _headers(USERS["staff"])
+    assert client.get("/api/auth/me", headers=headers).status_code == 200
+    con = sqlite3.connect(db_path)
+    con.execute("delete from users where id = ?", (USERS["staff"][0],))
+    con.commit()
+    con.close()
+    assert client.get("/api/auth/me", headers=headers).status_code == 401
+
+
+def test_role_is_read_from_the_database(api):
+    client, _db_path = api
+    user_id, username, first, last, title, _role = USERS["staff"]
+    token = create_access_token({
+        "sub": user_id,
+        "username": username,
+        "first_name": first,
+        "last_name": last,
+        "title": title,
+        "role": "admin",
+    })
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.get("/api/auth/users", headers=headers).status_code == 403
+
+
+def test_logout_makes_the_token_useless(api):
+    client, _db_path = api
+    headers = _headers(USERS["staff"])
+    assert client.post("/api/auth/logout", headers=headers).status_code == 200
+    assert client.get("/api/auth/me", headers=headers).status_code == 401
+    assert client.get("/api/night?date=2026-10-08").status_code == 401

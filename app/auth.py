@@ -65,9 +65,14 @@ async def get_current_user(
         role: str = payload.get("role", "staff")
         if user_id is None or username is None:
             return None
-        cursor = await db.execute("SELECT session_version FROM users WHERE id = ?", (user_id,))
+        cursor = await db.execute(
+            "SELECT role, session_version FROM users WHERE id = ?",
+            (user_id,),
+        )
         row = await cursor.fetchone()
-        if row is not None and int(payload.get("sv") or 0) != int(row["session_version"] or 0):
+        if row is None:
+            return None
+        if int(payload.get("sv") or 0) != int(row["session_version"] or 0):
             return None
         return TokenData(
             user_id=user_id,
@@ -75,7 +80,7 @@ async def get_current_user(
             first_name=first_name,
             last_name=last_name,
             title=title,
-            role=role
+            role=row["role"],
         )
     except JWTError:
         return None

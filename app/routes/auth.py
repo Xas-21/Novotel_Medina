@@ -69,6 +69,16 @@ async def get_me(db: aiosqlite.Connection = Depends(get_db), user: TokenData = D
     return _user_response(row)
 
 
+@router.post("/logout")
+async def logout(user: TokenData = Depends(require_auth), db: aiosqlite.Connection = Depends(get_db)):
+    await db.execute(
+        "UPDATE users SET session_version = COALESCE(session_version, 0) + 1 WHERE id = ?",
+        (user.user_id,),
+    )
+    await db.commit()
+    return {"success": True}
+
+
 @router.get("/users", response_model=List[UserResponse])
 async def list_users(db: aiosqlite.Connection = Depends(get_db), _: TokenData = Depends(require_admin)):
     cursor = await db.execute(

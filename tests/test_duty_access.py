@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app.auth import create_access_token
+from app.auth import create_access_token, get_password_hash
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -37,9 +37,24 @@ def api(tmp_path, monkeypatch):
     assert db_path.is_relative_to(tmp_path)
 
     asyncio.run(database.init_db())
+    _seed_test_users(db_path)
 
     with TestClient(main.app) as client:
         yield client, db_path
+
+
+def _seed_test_users(db_path):
+    con = sqlite3.connect(db_path)
+    try:
+        password_hash = get_password_hash("duty-test")
+        for user_id, username, first, last, title, role in USERS.values():
+            con.execute(
+                "INSERT OR IGNORE INTO users (id, username, first_name, last_name, title, password_hash, role) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (user_id, username, first, last, title, password_hash, role),
+            )
+        con.commit()
+    finally:
+        con.close()
 
 
 def _headers(user):

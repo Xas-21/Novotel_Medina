@@ -550,13 +550,22 @@
     }
   }
 
-  function logout() {
+  async function logout() {
+    const token = state.token;
     state.token = "";
     state.user = null;
     localStorage.removeItem('novotel_token');
     localStorage.removeItem('novotel_active');
+    if (token) {
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + token }
+        });
+      } catch (e) {}
+    }
     if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
-    if (ws) { try { ws.close(); } catch(e){} }
+    if (ws) { try { ws.close(); } catch (e) {} }
     state.wsConnected = false;
     showLogin();
   }
