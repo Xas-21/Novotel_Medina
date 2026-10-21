@@ -1,12 +1,11 @@
 import uuid
 import logging
 from datetime import datetime
-from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 import aiosqlite
 from app.database import get_db
 from app.models import NoteCreate, NoteUpdate, NoteResponse
-from app.auth import get_current_user, TokenData
+from app.auth import require_auth, TokenData
 from app.ws import ws_manager
 
 async def record_note_event(db: aiosqlite.Connection, note_id: str, status_value: str, actor: str, at: str):
@@ -62,12 +61,12 @@ async def create_note(
     date: str,
     data: NoteCreate,
     db: aiosqlite.Connection = Depends(get_db),
-    user: Optional[TokenData] = Depends(get_current_user)
+    user: TokenData = Depends(require_auth)
 ):
     note_id = f"note_{uuid.uuid4().hex[:10]}"
     now = datetime.utcnow()
     time_str = data.time or now.strftime("%H:%M")
-    manager_name = user.full_name if user else (data.manager or "Duty Manager")
+    manager_name = user.full_name
     
     # Ensure report exists for this date
     cursor = await db.execute("SELECT date FROM reports WHERE date = ?", (date,))
@@ -115,7 +114,7 @@ async def update_note(
     note_id: str,
     data: NoteUpdate,
     db: aiosqlite.Connection = Depends(get_db),
-    user: Optional[TokenData] = Depends(get_current_user)
+    user: TokenData = Depends(require_auth)
 ):
     cursor = await db.execute("SELECT * FROM notes WHERE id = ?", (note_id,))
     note = await cursor.fetchone()
@@ -135,7 +134,7 @@ async def update_note(
         updates.append("text = ?")
         params.append(data.text)
         
-    actor = user.full_name if user else "Manager"
+    actor = user.full_name
     now = datetime.utcnow().isoformat()
     if updates:
         params.append(note_id)
@@ -161,7 +160,7 @@ async def update_note(
 async def delete_note(
     note_id: str,
     db: aiosqlite.Connection = Depends(get_db),
-    user: Optional[TokenData] = Depends(get_current_user)
+    user: TokenData = Depends(require_auth)
 ):
     cursor = await db.execute("SELECT * FROM notes WHERE id = ?", (note_id,))
     note = await cursor.fetchone()
@@ -176,7 +175,7 @@ async def delete_note(
         "event": "NOTE_DELETED",
         "date": report_date,
         "noteId": note_id,
-        "deletedBy": user.full_name if user else "Manager"
+        "deletedBy": user.full_name
     })
     
     return {"success": True, "id": note_id}

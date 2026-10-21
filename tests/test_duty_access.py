@@ -131,6 +131,17 @@ def test_open_note_carries_onto_the_next_report(api):
     assert all(n["id"] != note_id for n in after.json()["notes"])
 
 
+def test_notes_require_login(api):
+    client, _db_path = api
+    created = client.post(
+        "/api/notes/2099-05-01",
+        json={"department": "Maintenance", "text": "Open door"},
+    )
+    assert created.status_code == 401
+    assert client.patch("/api/notes/note_missing", json={"status": "closed"}).status_code == 401
+    assert client.delete("/api/notes/note_missing").status_code == 401
+
+
 def test_incidents_and_general_comments_save_separately(api):
     client, _db_path = api
     headers = _headers(USERS["staff"])
