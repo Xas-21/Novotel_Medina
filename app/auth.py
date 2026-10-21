@@ -9,7 +9,12 @@ from pydantic import BaseModel
 import aiosqlite
 from app.database import get_db
 
-SECRET_KEY = os.getenv("SECRET_KEY", "novotel-secret-key-2026-dmr-super-secure")
+def signing_key() -> str:
+    key = os.getenv("SECRET_KEY")
+    if not key:
+        raise RuntimeError("Set SECRET_KEY before starting Novotel")
+    return key
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_SECONDS = 3600 * 24 * 30  # 30 days
 
@@ -41,7 +46,7 @@ def create_access_token(data: dict, expires_delta: Optional[int] = None) -> str:
     to_encode = data.copy()
     expire = time.time() + (expires_delta or ACCESS_TOKEN_EXPIRE_SECONDS)
     to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return jwt.encode(to_encode, signing_key(), algorithm=ALGORITHM)
 
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
@@ -51,7 +56,7 @@ async def get_current_user(
         return None
     token = credentials.credentials
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, signing_key(), algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
         username: str = payload.get("username")
         first_name: str = payload.get("first_name", "")

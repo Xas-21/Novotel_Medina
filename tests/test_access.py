@@ -1,4 +1,14 @@
-from app.auth import can_write
+import pytest
+from app.auth import can_write, create_access_token, signing_key
+
+
+def test_signing_key_is_required(monkeypatch):
+    monkeypatch.delenv("SECRET_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="Set SECRET_KEY"):
+        signing_key()
+    with pytest.raises(RuntimeError, match="Set SECRET_KEY"):
+        create_access_token({"sub": "usr_test"})
+
 
 def test_staff_covers_duty_and_night():
     assert can_write("staff", "duty") is True

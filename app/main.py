@@ -5,6 +5,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from app.auth import signing_key
 from app.database import init_db, UPLOADS_DIR
 from app.routes import auth, reports, notes, upload, night, guest, settings
 from app.ws import ws_manager
@@ -17,6 +18,7 @@ logger = logging.getLogger("novotel.main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    signing_key()
     logger.info("Initializing Novotel Duty Manager Report Database...")
     await init_db()
     yield
