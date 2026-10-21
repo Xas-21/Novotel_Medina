@@ -725,9 +725,7 @@
       shiftEnd: draft.shiftEnd || '',
       arrivals: draft.arrivals || '',
       departures: draft.departures || '',
-      inHouse: draft.inHouse || '',
-      allMembers: draft.allMembers || '',
-      overviewOccupancy: draft.overviewOccupancy || ''
+      allMembers: draft.allMembers || ''
     };
   }
 

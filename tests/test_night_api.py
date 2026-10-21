@@ -278,6 +278,31 @@ def test_later_save_keeps_stored_rooms_available(api):
     assert body["roomsOccupied"] == 236
 
 
+def test_night_save_leaves_stored_in_house_alone(api):
+    client, db_path = api
+    headers = _headers(USERS["night"])
+    assert client.put("/api/night", json=OCT_8, headers=headers).status_code == 200
+    con = sqlite3.connect(db_path)
+    con.execute(
+        "update night_reports set in_house = ?, overview_occupancy = ? where date = ?",
+        ("120", "61", "2026-10-08"),
+    )
+    con.commit()
+    con.close()
+    again = dict(OCT_8)
+    again["roomsOccupied"] = 236
+    saved = client.put("/api/night", json=again, headers=headers)
+    assert saved.status_code == 200
+    assert saved.json()["roomsOccupied"] == 236
+    con = sqlite3.connect(db_path)
+    row = con.execute(
+        "select in_house, overview_occupancy from night_reports where date = ?",
+        ("2026-10-08",),
+    ).fetchone()
+    con.close()
+    assert row == ("120", "61")
+
+
 def test_blank_night_report_cannot_be_submitted(api):
     client, _db_path = api
     headers = _headers(USERS["night"])

@@ -431,7 +431,7 @@ async def save_night(
                 groups_json = ?, vip_json = ?, checklist_json = ?, comments_json = ?,
                 inspection_json = ?,
                 shift_start = ?, shift_end = ?, arrivals = ?, departures = ?,
-                in_house = ?, all_members = ?, overview_occupancy = ?, updated_at = ?
+                all_members = ?, updated_at = ?
             WHERE date = ?
             """,
             (
@@ -440,7 +440,7 @@ async def save_night(
                 json.dumps(groups), json.dumps(vip), json.dumps(checklist), json.dumps(comments),
                 json.dumps(inspection),
                 data.shiftStart, data.shiftEnd, data.arrivals, data.departures,
-                data.inHouse, data.allMembers, data.overviewOccupancy, now, data.date,
+                data.allMembers, now, data.date,
             ),
         )
     else:
@@ -450,9 +450,9 @@ async def save_night(
                 date, status, rooms_available, rooms_occupied, rooms_revenue, fb_revenue,
                 me_revenue, ood_revenue, other_revenue, segments_json, forecast_json,
                 groups_json, vip_json, checklist_json, comments_json, inspection_json,
-                shift_start, shift_end, arrivals, departures, in_house, all_members, overview_occupancy,
+                shift_start, shift_end, arrivals, departures, all_members,
                 created_at, updated_at
-            ) VALUES (?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data.date, await _hotel_rooms(db), data.roomsOccupied, data.roomsRevenue,
@@ -460,7 +460,7 @@ async def save_night(
                 json.dumps(segments), json.dumps(forecast), json.dumps(groups), json.dumps(vip),
                 json.dumps(checklist), json.dumps(comments), json.dumps(inspection),
                 data.shiftStart, data.shiftEnd, data.arrivals, data.departures,
-                data.inHouse, data.allMembers, data.overviewOccupancy, now, now,
+                data.allMembers, now, now,
             ),
         )
 
