@@ -660,7 +660,7 @@
       main.innerHTML = window.renderNightSection();
     } else if (state.section === 'guest') {
       main.innerHTML = window.renderGuestSection ? window.renderGuestSection() : '';
-    } else if (state.loading) {
+    } else if (state.loading && state.view === 'today') {
       main.innerHTML = '<div class="dmr-empty"><h3>Loading report data…</h3></div>';
     } else if (state.view === 'today') {
       main.innerHTML = renderToday();
