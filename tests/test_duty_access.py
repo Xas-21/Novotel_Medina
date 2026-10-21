@@ -141,17 +141,41 @@ def test_guest_relation_saves_without_touching_other_reports(api):
     blank = client.get("/api/guest", params={"date": "2099-05-01"}, headers=staff)
     assert blank.status_code == 200
     assert "status" not in blank.json()
-    assert blank.json()["membership"][0]["name"] == "Classic"
+    assert blank.json()["membership"] == []
+    assert blank.json()["scores"] == []
     denied = client.put("/api/guest", json={"date": "2099-05-01", "inCharge": "Nora"}, headers=night)
     assert denied.status_code == 403
     saved = client.put(
         "/api/guest",
-        json={"date": "2099-05-01", "inCharge": "Sara", "inHouse": [{"satisfaction": "Non Satisfied", "contacted": "Call", "name": "Ada"}]},
+        json={
+            "date": "2099-05-01",
+            "inCharge": "Sara",
+            "arrivals": "197",
+            "scores": [{"type": "TrustYou", "ytd": "90"}],
+            "membership": [{"tier": "Gold", "vip": "V2", "arrival": "3", "inHouse": "1", "departure": "2"}],
+            "inHouse": [{"satisfaction": "Non Satisfied", "contacted": "Call", "name": "Ada", "priority": "Urgent", "feedback": "Late room"}],
+            "generalComments": [{"comment": "Follow up", "time": "19:10"}],
+        },
         headers=staff,
     )
     assert saved.status_code == 200
     assert saved.json()["status"] == "draft"
     assert saved.json()["inCharge"] == "Sara"
+    assert saved.json()["occupancy"] == "50"
+    assert saved.json()["scores"] == [{"type": "TrustYou", "ytd": "90"}]
+    assert saved.json()["membership"][0]["tier"] == "Gold"
+    assert saved.json()["membership"][0]["vip"] == "V2"
+    assert "arrivalRooms" not in saved.json()["membership"][0]
+    assert saved.json()["inHouse"][0]["priority"] == "Urgent"
+    assert saved.json()["generalComments"][0]["comment"] == "Follow up"
+    analysis = client.get("/api/guest/analysis", params={"date": "2099-05-01", "range": "week"}, headers=staff)
+    assert analysis.status_code == 200
+    summary = analysis.json()
+    assert summary["priority"]["Urgent"] == 1
+    assert summary["satisfaction"]["Non Satisfied"] == 1
+    assert summary["membershipTiers"][0]["tier"] == "Gold"
+    assert summary["vipArrivals"][-1] == 197
+    assert summary["vipOcc"][-1] == 50
     assert saved.json()["inHouse"][0]["satisfaction"] == "Non Satisfied"
     import sqlite3
     con = sqlite3.connect(db_path)

@@ -1355,7 +1355,9 @@
       guestSubmitted: guest ? guest.submitted : 0,
       guestMissing: guest ? guest.missing : 0,
       guestNotSatisfied: guest ? guest.notSatisfied : 0,
-      guestDeparture: guest && guest.avgDeparture != null ? guest.avgDeparture : '—'
+      guestDeparture: guest && guest.avgDeparture != null ? guest.avgDeparture : '—',
+      guestUrgent: guest ? guest.urgent || 0 : 0,
+      guestVipOcc: guest && guest.avgVipOcc != null ? guest.avgVipOcc + '%' : '—'
     };
   }
 
@@ -1381,7 +1383,9 @@
       { tone: 'ok', value: stats.guestSubmitted || 0, label: 'Guest Relation submitted' },
       { tone: 'danger', value: stats.guestMissing || 0, label: 'Guest Relation days not submitted' },
       { tone: 'warn', value: stats.guestNotSatisfied || 0, label: 'Not satisfied guests' },
-      { tone: 'teal', value: stats.guestDeparture == null ? '—' : stats.guestDeparture, label: 'Avg departure score' }
+      { tone: 'danger', value: stats.guestUrgent || 0, label: 'Urgent guest actions' },
+      { tone: 'teal', value: stats.guestDeparture == null ? '—' : stats.guestDeparture, label: 'Avg departure score' },
+      { tone: 'navy', value: stats.guestVipOcc || '—', label: 'Avg VIP occ' }
     ];
   }
 
@@ -1477,6 +1481,8 @@
         <div class="dmr-card dmr-chart-card"><h3>Revenue Mix</h3><div class="chart-box chart-box-pie"><canvas id="pieRevenue"></canvas></div></div>
         <div class="dmr-card dmr-chart-card"><h3>Guest Relation</h3><div class="chart-box chart-box-pie"><canvas id="pieGuest"></canvas></div></div>
       </div>
+      <div class="dmr-card dmr-chart-card"><h3>Guest priority</h3><div class="chart-box"><canvas id="guestPriority"></canvas></div></div>
+      <div class="dmr-card dmr-chart-card"><h3>Guest Relation VIP</h3><div class="chart-box"><canvas id="guestVip"></canvas></div></div>
       ${window.actionItemsHtml ? window.actionItemsHtml((duty && duty.actionItems) || []) : ''}
       <div class="dmr-card dmr-chart-card"><h3>Duty occupancy and ALL Loyalty Members</h3><div class="chart-box"><canvas id="fullOcc"></canvas></div></div>
       <div class="dmr-card dmr-chart-card"><h3>TrustYou GSS</h3><div class="chart-box"><canvas id="fullGss"></canvas></div></div>
@@ -1516,6 +1522,8 @@
     drawPie('pieNight', ['Submitted', 'Not submitted'], [stats.nightFiled, stats.nightMissing], ['#0f766e', '#E7D3D0']);
     drawPie('pieRevenue', ['Rooms', 'F&B', 'M&E', 'OOD', 'Other'], [revenue.rooms || 0, revenue.fb || 0, revenue.me || 0, revenue.ood || 0, revenue.other || 0], ['#1e22aa', '#14b8a6', '#7c6bf2', '#A8814F', '#8aa0b2']);
     drawPie('pieGuest', ['Submitted', 'Not submitted'], [stats.guestSubmitted || 0, stats.guestMissing || 0], ['#1e22aa', '#E7D3D0']);
+    if (window.guestPriorityChart) window.guestPriorityChart(document.getElementById('guestPriority'), guest || {}, false);
+    if (window.guestVipChart) window.guestVipChart(document.getElementById('guestVip'), guest || {}, false);
     const revOptions = charts.chartFrame();
     charts.mountChart(document.getElementById('fullRevenue'), {
       type: 'bar',
@@ -1555,6 +1563,11 @@
       { title: 'Guest Relation', image: pieImage(charts, ['Submitted', 'Not submitted'], [stats.guestSubmitted || 0, stats.guestMissing || 0], ['#1e22aa', '#E7D3D0']) }
     ]);
     y += 8;
+    const guestPack = pack.guest || {};
+    if (window.guestPriorityChart) {
+      y = pdfChart(doc, W, y, 'Guest priority', charts.chartImage(canvas => window.guestPriorityChart(canvas, guestPack, true)));
+      y = pdfChart(doc, W, y, 'Guest Relation VIP', charts.chartImage(canvas => window.guestVipChart(canvas, guestPack, true)));
+    }
     const series = window.occupancySeries(pack.index, pack.from, pack.to);
     const occImg = charts.chartImage(canvas => {
       const options = charts.comboOptions();

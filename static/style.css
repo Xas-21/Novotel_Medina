@@ -1247,7 +1247,11 @@ body.nav-open { overflow: hidden; }
   margin-bottom: 10px;
 }
 .night-record { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1fr) auto; }
-#guestForm .night-record { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+#guestForm .night-record { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+#guestForm .guest-wide { grid-column: 1 / -1; }
+#guestForm select.guest-priority[data-priority="Normal"] { color: #1e22aa; font-weight: 700; }
+#guestForm select.guest-priority[data-priority="Mid"] { color: #b8860b; font-weight: 700; }
+#guestForm select.guest-priority[data-priority="Urgent"] { color: #B14B3F; font-weight: 700; }
 .night-vip { grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.7fr) minmax(0, 0.7fr) minmax(0, 0.7fr) minmax(0, 1fr) auto; }
 .night-record .dmr-field,
 .night-vip .dmr-field { margin-bottom: 0; }
