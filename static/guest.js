@@ -514,6 +514,57 @@
     return y + 2;
   }
 
+  function prettyDate(value){
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || '').trim());
+    if (!match) return String(value || '').trim();
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const month = months[Number(match[2]) - 1];
+    return month ? month + ' ' + Number(match[3]) + ', ' + match[1] : String(value).trim();
+  }
+  function prettyTime(value){
+    const match = /^(\d{1,2}):(\d{2})$/.exec(String(value || '').trim());
+    if (!match) return String(value || '').trim();
+    let hour = Number(match[1]);
+    const suffix = hour >= 12 ? 'PM' : 'AM';
+    hour = hour % 12 || 12;
+    return (hour < 10 ? '0' : '') + hour + ':' + match[2] + ' ' + suffix;
+  }
+  function writeFacts(doc, W, y, facts){
+    const filled = (facts || []).filter(item => String(item.text || '').trim());
+    if (!filled.length) return y;
+    const x0 = 40, limit = W - 44, gap = 16, lineH = 13;
+    let x = x0;
+    const ensure = () => {
+      if (y + lineH <= 770) return;
+      doc.addPage();
+      y = 48;
+      x = x0;
+    };
+    ensure();
+    filled.forEach(item => {
+      const label = String(item.label || '').toUpperCase();
+      const value = String(item.text).trim();
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
+      const labelW = doc.getTextWidth(label);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+      if (x > x0 && x + labelW + 20 > limit) { x = x0; y += lineH; ensure(); }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(30, 34, 170);
+      doc.text(label, x, y + 9);
+      const room = Math.max(40, limit - (x + labelW + 4));
+      const lines = doc.splitTextToSize(value, room);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(35, 48, 61);
+      doc.text(lines[0], x + labelW + 4, y + 9);
+      x += labelW + 4 + doc.getTextWidth(lines[0]) + gap;
+      lines.slice(1).forEach(extra => {
+        x = x0; y += lineH; ensure();
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(35, 48, 61);
+        doc.text(extra, x, y + 9);
+        x = x0 + doc.getTextWidth(extra) + gap;
+      });
+    });
+    return y + lineH + 1;
+  }
+
   function paintGuestPeople(doc, W, y, title, cols, people){
     if (!people.length) return y;
     if (y > 700) { doc.addPage(); y = 48; }
@@ -549,6 +600,7 @@
         cx += col.w;
       });
       y += rowH;
+      if (person.facts) y = writeFacts(doc, W, y, person.facts);
       (person.notes || []).forEach(note => { y = writeNote(doc, W, y, note.label, note.text); });
       y += 3;
     });
@@ -593,23 +645,46 @@
       {key:'PRI', label:'PRIORITY', w:90},{key:'NAME', label:'GUEST', w:280},{key:'MEM', label:'TIER', w:145}
     ], (data.preArrival || []).map(row => withPriority({
       PRI: row.priority || '', NAME: row.name || '', MEM: row.membership || '', priority: row.priority,
+      facts: [
+        {label:'Reservation #', text: row.reservation},
+        {label:'Arrival', text: prettyDate(row.arrival)},
+        {label:'Departure', text: prettyDate(row.departure)},
+        {label:'Arrival time', text: prettyTime(row.arrivalTime)},
+        {label:'Contacted by', text: row.contacted}
+      ],
       notes: [{label:'PREFERENCES', text: row.preferences}, {label:'ACTION', text: row.action}]
     })));
     y = paintGuestPeople(doc, W, y, 'In-house welcome call', [
       {key:'PRI', label:'PRIORITY', w:90},{key:'ROOM', label:'ROOM', w:70},{key:'NAME', label:'GUEST', w:220},{key:'SAT', label:'SATISFACTION', w:135}
     ], (data.inHouse || []).map(row => withPriority({
       PRI: row.priority || '', ROOM: row.room || '', NAME: row.name || '', SAT: row.satisfaction || '', priority: row.priority,
+      facts: [
+        {label:'Membership', text: row.membership},
+        {label:'Arrival', text: prettyDate(row.arrival)},
+        {label:'Departure', text: prettyDate(row.departure)},
+        {label:'Service done?', text: row.service},
+        {label:'Welcome drink', text: row.drink},
+        {label:'F&B amenities', text: row.fb},
+        {label:'Contacted by', text: row.contacted}
+      ],
       notes: [{label:'SPECIAL REQUEST', text: row.request}, {label:'FEEDBACK', text: row.feedback}, {label:'ACTION', text: row.action}]
     })));
     y = paintGuestPeople(doc, W, y, 'Departure courtesy call', [
       {key:'PRI', label:'PRIORITY', w:80},{key:'ROOM', label:'ROOM', w:60},{key:'NAME', label:'GUEST', w:200},{key:'SCORE', label:'SCORE', w:70},{key:'EMP', label:'EMPLOYEE', w:105}
     ], (data.departure || []).map(row => withPriority({
       PRI: row.priority || '', ROOM: row.room || '', NAME: row.name || '', SCORE: row.score || '', EMP: row.employeeRating || '', priority: row.priority,
+      facts: [
+        {label:'Membership', text: row.membership},
+        {label:'Arrival', text: prettyDate(row.arrival)},
+        {label:'Departure', text: prettyDate(row.departure)},
+        {label:'Review reminder', text: row.review},
+        {label:'Contacted by', text: row.contacted}
+      ],
       notes: [{label:'FEEDBACK', text: row.feedback}, {label:'ACTION', text: row.action}]
     })));
     y = paintGuestPeople(doc, W, y, 'General Comments', [
       {key:'TIME', label:'TIME', w:120}
-    ], (data.generalComments || []).map(row => ({TIME: row.time || '—', notes: [{label:'COMMENT', text: row.comment}]})));
+    ], (data.generalComments || []).map(row => ({TIME: prettyTime(row.time) || '—', notes: [{label:'COMMENT', text: row.comment}]})));
     pdf.addPdfFooter(doc, W, 'Novotel — Guest Relation Report');
     doc.save('novotel-guest-relation-' + date + '.pdf');
   }
