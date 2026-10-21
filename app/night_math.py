@@ -28,7 +28,11 @@ def month_to_date(rooms_available, day_number, rows):
     me = sum(r["me_revenue"] for r in rows)
     ood = sum(r["ood_revenue"] for r in rows)
     other = sum(r["other_revenue"] for r in rows)
-    available = rooms_available * day_number
+    available = 0
+    for row in rows:
+        stored = row.get("rooms_available")
+        available += rooms_available if stored is None else stored
+
     return {
         "roomsOccupied": occupied,
         "roomsRevenue": rooms_rev,

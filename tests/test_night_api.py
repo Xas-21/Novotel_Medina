@@ -169,7 +169,8 @@ def test_get_missing_date_returns_blank_without_insert(api, monkeypatch):
     assert body["calculated"]["adr"] is None
     assert body["calculated"]["oodRevenue"] == 0
     assert body["segmentGap"] == {"segmentRooms": 0, "unassigned": 0}
-    assert body["mtd"]["available"] == 394 * 8
+    assert body["mtd"]["available"] == 0
+
     assert body["mtd"]["grandTotal"] == 0
     assert body["missingDates"] == [f"2026-10-{day:02d}" for day in range(1, 9)]
     assert _night_count(db_path) == 0

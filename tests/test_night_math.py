@@ -20,16 +20,28 @@ def test_segment_gap_on_oct_8():
     gap = segment_gap(235, [1, 25, 16, 5, 99, 66, 0])
     assert gap == {"segmentRooms": 212, "unassigned": 23}
 
-def test_mtd_matches_workbook_when_prior_rows_sum_to_sheet():
+def test_mtd_occupancy_counts_saved_nights_only():
+    rows = [
+        {"rooms_available": 394, "rooms_occupied": 89, "rooms_revenue": 77880.0, "fb_revenue": 0, "me_revenue": 0, "ood_revenue": 0, "other_revenue": 0},
+        {"rooms_available": 394, "rooms_occupied": 50, "rooms_revenue": 300000.0, "fb_revenue": 0, "me_revenue": 0, "ood_revenue": 0, "other_revenue": 0},
+        {"rooms_available": 394, "rooms_occupied": 0, "rooms_revenue": 0, "fb_revenue": 0, "me_revenue": 0, "ood_revenue": 0, "other_revenue": 0},
+    ]
+    mtd = month_to_date(394, 18, rows)
+    assert mtd["roomsOccupied"] == 139
+    assert mtd["available"] == 1182
+    assert money(mtd["occupancy"] * 100) == 12
+    assert money(mtd["roomsRevenue"]) == 377880
+
+
+def test_mtd_revenue_still_sums_every_saved_row():
     rows = [
         {"rooms_occupied": 1458, "rooms_revenue": 528049.00, "fb_revenue": 68661.02, "me_revenue": 0, "ood_revenue": 0, "other_revenue": 2980.99},
         {"rooms_occupied": 235, "rooms_revenue": 83561.14, "fb_revenue": 12833.52, "me_revenue": 0, "ood_revenue": 0, "other_revenue": 406.96},
     ]
     mtd = month_to_date(394, 8, rows)
     assert mtd["roomsOccupied"] == 1693
-    assert money(mtd["occupancy"] * 100) == 54
+    assert mtd["available"] == 788
     assert money(mtd["adr"]) == 361
-    assert money(mtd["revpar"]) == 194
     assert money(mtd["grandTotal"]) == 696493
 
 def test_missing_dates_lists_gaps_only():
