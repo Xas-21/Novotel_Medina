@@ -230,7 +230,7 @@ async def save_report(
                 trust_you_json, complaints_json, incidents_json, general_comments_json, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            data.date, data.status or 'draft', data.shiftStart, data.shiftEnd, data.occupancy, data.arrivals, data.departures,
+            data.date, "draft", data.shiftStart, data.shiftEnd, data.occupancy, data.arrivals, data.departures,
             data.inHouse, data.allMembers, data.cafeteriaMealTime, data.cafeteriaTime or "", checklists_json,
             cafeteria_json, rooms_json, courtesy_json,
             trust_you_json, complaints_json, incidents_json, general_comments_json, now_str, now_str

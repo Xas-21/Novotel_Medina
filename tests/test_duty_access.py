@@ -103,6 +103,36 @@ def test_blank_duty_report_cannot_be_submitted(api):
     assert client.get("/api/reports", params={"date": "2099-03-09"}, headers=headers).json()["status"] == "draft"
 
 
+def test_first_save_stays_a_draft_even_if_marked_submitted(api):
+    client, _db_path = api
+    headers = _headers(USERS["staff"])
+    saved = client.post(
+        "/api/reports",
+        json={"date": "2099-08-01", "status": "submitted", "occupancy": "40"},
+        headers=headers,
+    )
+    assert saved.status_code == 200
+    report = client.get("/api/reports", params={"date": "2099-08-01"}, headers=headers).json()
+    assert report["status"] == "draft"
+    assert report["occupancy"] == "40"
+
+
+def test_saving_a_submitted_report_does_not_reopen_it(api):
+    client, _db_path = api
+    headers = _headers(USERS["admin"])
+    assert client.post("/api/reports", json=_complete_duty("2099-08-02"), headers=headers).status_code == 200
+    assert client.post("/api/reports/2099-08-02/submit", headers=headers).status_code == 200
+    saved = client.post(
+        "/api/reports",
+        json={"date": "2099-08-02", "status": "draft", "occupancy": "50"},
+        headers=headers,
+    )
+    assert saved.status_code == 200
+    report = client.get("/api/reports", params={"date": "2099-08-02"}, headers=headers).json()
+    assert report["status"] == "submitted"
+    assert report["occupancy"] == "50"
+
+
 def test_open_note_carries_onto_the_next_report(api):
     client, _db_path = api
     headers = _headers(USERS["staff"])
