@@ -291,8 +291,7 @@
       await save();
       const res = await window.apiFetch('/api/guest/submit?date=' + encodeURIComponent(draft.date), {method:'POST'});
       if (res && res.status === 'submitted') {
-        window.state.section = 'guest';
-        window.state.view = 'archive';
+        window.goTo('guest', 'archive');
         window.state.selectedDate = res.date || draft.date;
         window.renderApp();
       }
@@ -348,8 +347,7 @@
         await window.apiFetch('/api/guest/reopen?date=' + encodeURIComponent(date), {method:'POST'});
       }
     }
-    window.state.section = 'guest';
-    window.state.view = 'today';
+    window.goTo('guest', 'today');
     window.state.selectedDate = date;
     window.renderApp();
   }

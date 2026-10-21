@@ -873,8 +873,7 @@
 
   function openNightDate(date){
     const state = window.state;
-    state.section = 'night';
-    state.view = 'today';
+    window.goTo('night', 'today');
     state.selectedDate = date;
     window.renderApp();
   }

@@ -491,6 +491,13 @@
 
   async function init() {
     bindNavDrawer();
+    if (!window._routeBound) {
+      window._routeBound = true;
+      window.addEventListener("popstate", () => {
+        applyPath();
+        render();
+      });
+    }
     watchIdle();
     if (state.token && idleDue()) {
       logout();
@@ -570,11 +577,32 @@
     showLogin();
   }
 
+  function goTo(section, view) {
+    state.section = section;
+    state.view = view;
+    const path = window.NovotelRoutes.pathFor(section, view);
+    history.pushState({ section: section, view: view }, "", path);
+  }
+  window.goTo = goTo;
+
+  function applyPath() {
+    const role = state.user && state.user.role;
+    const route = window.NovotelRoutes.allowRoute(
+      window.NovotelRoutes.parsePath(location.pathname),
+      role
+    );
+    state.section = route.section;
+    state.view = route.view;
+    const path = window.NovotelRoutes.pathFor(route.section, route.view);
+    if (location.pathname !== path) {
+      history.replaceState({ section: route.section, view: route.view }, "", path);
+    }
+  }
+
   async function enterApp() {
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('dmrRoot').style.display = 'flex';
-    state.section = 'full';
-    state.view = 'today';
+    applyPath();
     noteActivity();
     initWebSocket();
     state.loading = true;
@@ -1423,7 +1451,7 @@
     });
 
     el.querySelectorAll('[data-view-date]').forEach(btn => {
-      btn.onclick = () => { state.view = 'today'; switchDate(btn.dataset.viewDate); };
+      btn.onclick = () => { goTo('duty', 'today'); switchDate(btn.dataset.viewDate); };
     });
     el.querySelectorAll('[data-export]').forEach(btn => {
       btn.onclick = () => exportPdf(btn.dataset.export);
@@ -1777,7 +1805,7 @@
     if (report && report.status === 'submitted') {
       await apiFetch(`/api/reports/${date}/reopen`, { method: 'POST' });
     }
-    state.view = 'today';
+    goTo('duty', 'today');
     await switchDate(date);
     showToast('Report ready to edit');
   }
@@ -2367,8 +2395,7 @@
 
     document.querySelectorAll('[data-view]').forEach(b => {
       b.onclick = () => {
-        if (b.dataset.section) state.section = b.dataset.section;
-        state.view = b.dataset.view;
+        goTo(b.dataset.section || state.section, b.dataset.view);
         setNavOpen(false);
         render();
       };
@@ -2944,8 +2971,7 @@
 
   function openDutyReport(date) {
     state.actionPopup = false;
-    state.section = 'duty';
-    state.view = 'today';
+    goTo('duty', 'today');
     switchDate(date);
   }
 
