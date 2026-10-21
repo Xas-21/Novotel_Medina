@@ -287,9 +287,15 @@
     }
     if (e.target.id === 'guestSubmit') {
       e.preventDefault();
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
       await save();
       const res = await window.apiFetch('/api/guest/submit?date=' + encodeURIComponent(draft.date), {method:'POST'});
-      if (res && res.status) { applyData(res); paint(); }
+      if (res && res.status === 'submitted') {
+        window.state.section = 'guest';
+        window.state.view = 'archive';
+        window.state.selectedDate = res.date || draft.date;
+        window.renderApp();
+      }
     }
   }
 
