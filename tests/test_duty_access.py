@@ -176,6 +176,10 @@ def test_guest_relation_saves_without_touching_other_reports(api):
     assert summary["membershipTiers"][0]["tier"] == "Gold"
     assert summary["vipArrivals"][-1] == 197
     assert summary["vipOcc"][-1] == 50
+    listed = client.get("/api/guest/index", headers=staff).json()
+    guest_row = next(item for item in listed if item["date"] == "2099-05-01")
+    assert guest_row["occupancy"] == "50"
+    assert guest_row["submittedBy"] in (None, "")
     assert saved.json()["inHouse"][0]["satisfaction"] == "Non Satisfied"
     import sqlite3
     con = sqlite3.connect(db_path)

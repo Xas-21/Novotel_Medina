@@ -293,6 +293,11 @@
     }
   }
 
+  function fmtDate(d){
+    const dt = new Date(d + 'T00:00:00');
+    return dt.toLocaleDateString('en-US', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+  }
+
   async function loadArchive(){
     const el = document.getElementById('guestArchive');
     const rows = await window.apiFetch('/api/guest/index') || [];
@@ -300,17 +305,47 @@
     const search = document.getElementById('archiveSearch');
     const filtered = search && search.value ? rows.filter(row => row.date === search.value) : rows;
     if (search && !search._guest) { search._guest = true; search.onchange = loadArchive; }
-    if (!filtered.length) { el.innerHTML = '<div class="dmr-card"><div class="dmr-empty">No guest relation reports yet.</div></div>'; return; }
-    const groups = window.groupByMonth ? window.groupByMonth(filtered) : [{label:'Reports', entries: filtered}];
+    if (!filtered.length) { el.innerHTML = '<div class="dmr-empty"><h3>No archived reports yet</h3></div>'; return; }
+    const groups = window.groupByMonth ? window.groupByMonth(filtered) : [{key:'', label:'Reports', entries: filtered}];
     const isAdmin = window.state.user && window.state.user.role === 'admin';
-    el.innerHTML = groups.map(group => `<details class="dmr-acc" open><summary><span>${escapeHtml(group.label)}</span></summary><div class="dmr-acc-body">${group.entries.map(entry => `
-      <div class="dmr-archive-row"><div><b>${escapeHtml(entry.date)}</b> <span class="dmr-sub">${escapeHtml(entry.status)}</span></div>
-      <div><button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-open="${escapeHtml(entry.date)}">Open</button>
-      <button type="button" class="dmr-btn dmr-btn-primary dmr-btn-sm" data-guest-pdf="${escapeHtml(entry.date)}">Export PDF</button>
-      ${isAdmin ? `<button type="button" class="dmr-btn dmr-btn-sm" data-guest-delete="${escapeHtml(entry.date)}" style="background:var(--danger);color:#fff;">Delete</button>` : ''}</div></div>`).join('')}</div></details>`).join('');
-    el.querySelectorAll('[data-guest-open]').forEach(btn => { btn.onclick = () => { window.state.section = 'guest'; window.state.view = 'today'; window.state.selectedDate = btn.dataset.guestOpen; window.renderApp(); }; });
+    const canEditGuest = canEdit();
+    const openKey = (search && search.value ? search.value : (window.state.selectedDate || '')).slice(0, 7);
+    el.innerHTML = groups.map(group => `
+      <details class="archive-month dmr-card" ${group.key === openKey ? 'open' : ''}>
+        <summary>${escapeHtml(group.label)} (${group.entries.length})</summary>
+        ${group.entries.map(entry => `
+          <div class="dmr-archive-row">
+            <div>
+              <div class="dmr-archive-date">${escapeHtml(fmtDate(entry.date))}</div>
+              <span class="dmr-badge ${entry.status === 'submitted' ? 'dmr-badge-submitted' : 'dmr-badge-draft'}">${entry.status === 'submitted' ? 'Submitted' : 'Draft'}</span>
+              ${entry.occupancy ? `<span style="font-size:12px;color:var(--ink-soft);margin-left:8px;">Occ: ${escapeHtml(String(entry.occupancy).replace('%','').trim())}%</span>` : ''}
+              ${entry.status === 'submitted' && entry.submittedBy ? `<div class="dmr-prepared-by">Prepared by: ${escapeHtml(entry.submittedBy)}</div>` : ''}
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-open="${escapeHtml(entry.date)}">Open</button>
+              ${(canEditGuest && (isAdmin || entry.status !== 'submitted')) ? `<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-edit="${escapeHtml(entry.date)}">Edit</button>` : ''}
+              <button type="button" class="dmr-btn dmr-btn-primary dmr-btn-sm" data-guest-pdf="${escapeHtml(entry.date)}">Export PDF</button>
+              ${(canEditGuest && isAdmin) ? `<button type="button" class="dmr-btn dmr-btn-sm" data-guest-delete="${escapeHtml(entry.date)}" style="background:var(--danger);color:#fff;">Delete</button>` : ''}
+            </div>
+          </div>`).join('')}
+      </details>`).join('');
+    el.querySelectorAll('[data-guest-open]').forEach(btn => { btn.onclick = () => openGuestDate(btn.dataset.guestOpen, false); });
+    el.querySelectorAll('[data-guest-edit]').forEach(btn => { btn.onclick = () => openGuestDate(btn.dataset.guestEdit, true); });
     el.querySelectorAll('[data-guest-pdf]').forEach(btn => { btn.onclick = () => exportPdf(btn.dataset.guestPdf); });
     el.querySelectorAll('[data-guest-delete]').forEach(btn => { btn.onclick = async () => { await window.apiFetch('/api/guest?date=' + encodeURIComponent(btn.dataset.guestDelete), {method:'DELETE'}); loadArchive(); }; });
+  }
+
+  async function openGuestDate(date, edit){
+    if (edit) {
+      const current = await window.apiFetch('/api/guest?date=' + encodeURIComponent(date));
+      if (current && current.status === 'submitted') {
+        await window.apiFetch('/api/guest/reopen?date=' + encodeURIComponent(date), {method:'POST'});
+      }
+    }
+    window.state.section = 'guest';
+    window.state.view = 'today';
+    window.state.selectedDate = date;
+    window.renderApp();
   }
 
   function chartOptions(forPdf){

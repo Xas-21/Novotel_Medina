@@ -296,8 +296,18 @@ async def delete_guest(date: str, _: TokenData = Depends(require_admin), db: aio
 
 @router.get("/index")
 async def guest_index(_: TokenData = Depends(require_auth), db: aiosqlite.Connection = Depends(get_db)):
-    cursor = await db.execute("SELECT date, status, submitted_by FROM guest_reports ORDER BY date DESC")
-    return [{"date": row["date"], "status": row["status"], "submittedBy": row["submitted_by"]} for row in await cursor.fetchall()]
+    rooms = await _hotel_rooms(db)
+    cursor = await db.execute("SELECT date, status, submitted_by, body_json FROM guest_reports ORDER BY date DESC")
+    items = []
+    for row in await cursor.fetchall():
+        body = _loads(row["body_json"], {})
+        items.append({
+            "date": row["date"],
+            "status": row["status"],
+            "submittedBy": row["submitted_by"],
+            "occupancy": _vip_occ(body.get("arrivals"), rooms),
+        })
+    return items
 
 
 @router.get("/analysis")
