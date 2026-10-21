@@ -49,7 +49,7 @@
 - **Port:** internal 8000 (not published to host)
 - **Volume:** `novotel_novotel_data` → `/data` (SQLite + uploads)
 - **Build/deploy:** `docker compose -f /opt/data/novotel/docker-compose.yml up -d --build`
-- **Seeded login:** `Houssin` / `112233` (admin) — the ONLY account.
+- **Login:** no default password is stored in this repo. Accounts are created in the Users screen.
 
 ## [AUTH & ROLES]
 - Login page requires **username + password** (JWT bearer, bcrypt-hashed, 30-day token).

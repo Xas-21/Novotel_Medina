@@ -1,16 +1,12 @@
 import os
 import aiosqlite
 import logging
-import bcrypt
 
 logger = logging.getLogger("novotel.db")
 
 DATA_DIR = os.getenv("DATA_DIR", "/data")
 DB_PATH = os.path.join(DATA_DIR, "novotel.db")
 UPLOADS_DIR = os.path.join(DATA_DIR, "uploads")
-
-def get_password_hash(password: str) -> str:
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 async def get_db():
     async with aiosqlite.connect(DB_PATH) as db:
@@ -188,13 +184,3 @@ async def init_db():
         """)
 
         await db.commit()
-
-        # Seed the single admin account (idempotent)
-        cursor = await db.execute("SELECT COUNT(*) FROM users WHERE username = ?", ("Houssin",))
-        if (await cursor.fetchone())[0] == 0:
-            await db.execute(
-                "INSERT INTO users (id, username, first_name, last_name, title, password_hash, role) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                ("usr_houssin", "Houssin", "Houssin", "Fayraq", "Duty Manager", get_password_hash("112233"), "admin")
-            )
-            await db.commit()
-            logger.info("Seeded admin user Houssin.")

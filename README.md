@@ -3,7 +3,7 @@
 Single-tenant web app for Novotel (Madinah) duty managers to run their daily inspection rounds, log complaints/incidents, attach photos, submit the daily report, export a branded PDF, and browse the archive/analysis.
 
 - **Live:** https://novotel.as-web.cloud
-- **Admin login:** `Houssin` / `112233` (seeded, see [Database](#database))
+- **Accounts:** created by an administrator in the Users screen. This repo does not ship a default password.
 - **Owner:** Abdullah (Xas-21). Deployed on Abdullah's Hostinger VPS.
 - **Sibling apps on the same VPS:** MICE/Shaden (`as-web` at https://shaden.as-web.cloud), TURAYA, AS V3, Wajeh Investor, OmniRoute. This app is one small FastAPI+SQLite container behind the shared Traefik proxy.
 
@@ -168,7 +168,7 @@ There is NO Docker UI (Portainer/etc.) on this box — everything is the plain D
 - `docker-compose.yml` reads `SECRET_KEY` from `.env` (same directory — Docker Compose auto-loads it): `${SECRET_KEY:?Set SECRET_KEY in .env}`.
 - `.env` on the VPS holds the production JWT signing secret. **Never commit `.env`** (it's in `.gitignore`).
 - If you change `SECRET_KEY`, every logged-in user is logged out (30-day JWTs invalidate). Keep it stable.
-- There is also a hardcoded fallback in `app/auth.py` (`os.getenv("SECRET_KEY", "novotel-secret-key-2026-dmr-super-secure")`) — dead in production because the env var is always set, but it IS in the repo; don't rely on it, and if this repo ever goes public, rotate the fallback.
+- The app refuses to start when `SECRET_KEY` is missing. There is no fallback key in the source.
 
 ## 10. Git workflow (for Abdullah + any dev agent)
 
