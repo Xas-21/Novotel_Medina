@@ -609,7 +609,7 @@
     render();
     state.report = await loadReport(state.selectedDate);
     state.loading = false;
-    if (state.section === 'duty') render();
+    if (state.section === 'duty' && state.view === 'today') render();
   }
 
   async function switchDate(d) {
