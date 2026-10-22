@@ -190,6 +190,21 @@ def test_incidents_and_general_comments_save_separately(api):
     assert report["generalComments"] == [{"comment": "Lobby was quiet", "time": "03:00"}]
 
 
+def test_guest_index_lists_vip_arrivals_and_departures(api):
+    client, _db_path = api
+    staff = _headers(USERS["staff"])
+    saved = client.put(
+        "/api/guest",
+        json={"date": "2099-06-02", "arrivals": "12", "departures": "5"},
+        headers=staff,
+    )
+    assert saved.status_code == 200
+    rows = client.get("/api/guest/index", headers=staff).json()
+    row = next(item for item in rows if item["date"] == "2099-06-02")
+    assert row["arrivals"] == "12"
+    assert row["departures"] == "5"
+
+
 def test_guest_relation_saves_without_touching_other_reports(api):
     client, db_path = api
     staff = _headers(USERS["staff"])

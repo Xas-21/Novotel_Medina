@@ -306,6 +306,8 @@ async def guest_index(_: TokenData = Depends(require_auth), db: aiosqlite.Connec
             "status": row["status"],
             "submittedBy": row["submitted_by"],
             "occupancy": _vip_occ(body.get("arrivals"), rooms),
+            "arrivals": _text(body.get("arrivals")),
+            "departures": _text(body.get("departures")),
         })
     return items
 

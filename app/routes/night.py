@@ -266,7 +266,7 @@ async def get_night_index(
     cursor = await db.execute(
         """
         SELECT date, status, submitted_by, rooms_available, rooms_occupied, rooms_revenue,
-               fb_revenue, me_revenue, ood_revenue, other_revenue
+               fb_revenue, me_revenue, ood_revenue, other_revenue, all_members
         FROM night_reports
         ORDER BY date DESC
         """
@@ -288,6 +288,7 @@ async def get_night_index(
             "status": row["status"],
             "submittedBy": row["submitted_by"],
             "occupancy": money(occupancy * 100) if occupancy is not None else None,
+            "allMembers": row["all_members"] or "",
         })
     return results
 

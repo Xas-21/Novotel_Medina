@@ -307,6 +307,25 @@
     return dt.toLocaleDateString('en-US', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
   }
 
+  function monthVip(rows, key, end){
+    const byDate = new Map(rows.map(row => [row.date, row]));
+    const count = value => {
+      const n = Number(String(value == null ? '' : value).replace(/,/g, '').trim());
+      return Number.isFinite(n) ? n : 0;
+    };
+    const pack = { labels: [], vipArrivals: [], vipDepartures: [], vipOcc: [] };
+    const last = Number(end.slice(8, 10));
+    for (let day = 1; day <= last; day++) {
+      const label = String(day).padStart(2, '0');
+      const row = byDate.get(key + '-' + label);
+      pack.labels.push(label);
+      pack.vipArrivals.push(row ? count(row.arrivals) : 0);
+      pack.vipDepartures.push(row ? count(row.departures) : 0);
+      pack.vipOcc.push(row && row.occupancy !== '' && row.occupancy != null ? Number(row.occupancy) : null);
+    }
+    return pack;
+  }
+
   async function loadArchive(){
     const el = document.getElementById('guestArchive');
     const rows = await window.apiFetch('/api/guest/index') || [];
@@ -322,6 +341,7 @@
     el.innerHTML = groups.map(group => `
       <details class="archive-month dmr-card" ${group.key === openKey ? 'open' : ''}>
         <summary>${escapeHtml(group.label)} (${group.entries.length})</summary>
+        ${group.key ? `<div class="chart-box"><canvas id="guest-vip-${group.key}"></canvas></div>` : ''}
         ${group.entries.map(entry => `
           <div class="dmr-archive-row">
             <div>
@@ -338,6 +358,19 @@
             </div>
           </div>`).join('')}
       </details>`).join('');
+    const drawMonth = key => {
+      if (!key || !window.todayStr || !window.monthLastDay) return;
+      const thisMonth = window.todayStr().slice(0, 7);
+      const end = key === thisMonth ? window.todayStr() : window.monthLastDay(key + '-01');
+      mountNamed('guest-vip-' + key, canvas => vipChart(canvas, monthVip(rows, key, end), false));
+    };
+    groups.forEach(group => drawMonth(group.key));
+    el.querySelectorAll('details.archive-month').forEach(details => {
+      details.ontoggle = () => {
+        const canvas = details.open && details.querySelector('canvas');
+        if (canvas) drawMonth(canvas.id.replace('guest-vip-', ''));
+      };
+    });
     el.querySelectorAll('[data-guest-open]').forEach(btn => { btn.onclick = () => openGuestDate(btn.dataset.guestOpen, false); });
     el.querySelectorAll('[data-guest-edit]').forEach(btn => { btn.onclick = () => openGuestDate(btn.dataset.guestEdit, true); });
     el.querySelectorAll('[data-guest-pdf]').forEach(btn => { btn.onclick = () => exportPdf(btn.dataset.guestPdf); });
@@ -354,6 +387,31 @@
     window.goTo('guest', 'today');
     window.state.selectedDate = date;
     window.renderApp();
+  }
+
+  const SCORE_COLORS = ['#1e22aa','#14b8a6','#7c6bf2','#A8814F','#B14B3F','#4F7A5B'];
+
+  function scoreSets(charts, canvas, data){
+    const box = canvas.parentElement;
+    const height = (box && box.clientHeight) || canvas.height || 220;
+    return SCORES.map((row, i) => {
+      const color = SCORE_COLORS[i];
+      const rgb = [1, 3, 5].map(at => parseInt(color.slice(at, at + 2), 16)).join(',');
+      const series = charts.areaSeries(canvas, row[1], (data.scores && data.scores[row[0]]) || [], color, rgb);
+      const fade = canvas.getContext('2d').createLinearGradient(0, 0, 0, height);
+      fade.addColorStop(0, 'rgba(' + rgb + ',0.16)');
+      fade.addColorStop(0.7, 'rgba(' + rgb + ',0.04)');
+      fade.addColorStop(1, 'rgba(' + rgb + ',0)');
+      series.backgroundColor = fade;
+      series.spanGaps = true;
+      return series;
+    });
+  }
+
+  function scoreScale(options){
+    options.scales.y.beginAtZero = false;
+    options.scales.y.grace = '8%';
+    return options;
   }
 
   function chartOptions(forPdf){
@@ -479,8 +537,8 @@
       charts.mountChart(document.getElementById('guestChannels'), {type:'bar', data:{labels:['Call','WhatsApp','Email'], datasets:[{data:[channels.Call||0, channels.WhatsApp||0, channels.Email||0], backgroundColor:['#1e22aa','#14b8a6','#7c6bf2'], borderRadius:8, maxBarThickness:48}]}, options: channelOptions});
       const scoreOptions = charts.chartFrame();
       scoreOptions.plugins.legend = {display:true, position:'top', labels:{boxWidth:10, color:'#5B6673', font:{family:'Aptos, Calibri, sans-serif', size:11}}};
-      const colors = ['#1e22aa','#14b8a6','#7c6bf2','#A8814F','#B14B3F','#4F7A5B'];
-      charts.mountChart(document.getElementById('guestScores'), {type:'line', data:{labels:data.labels, datasets: SCORES.map((row, i) => { const series = charts.areaSeries(document.getElementById('guestScores'), row[1], (data.scores && data.scores[row[0]]) || [], colors[i], '30,34,170'); series.spanGaps = true; series.fill = false; series.backgroundColor = colors[i]; return series; })}, options: scoreOptions});
+      const scoreCanvas = document.getElementById('guestScores');
+      charts.mountChart(scoreCanvas, {type:'line', data:{labels:data.labels, datasets: scoreSets(charts, scoreCanvas, data)}, options: scoreScale(scoreOptions)});
     }
     mountNamed('guestSectionPriority', canvas => sectionPriorityChart(canvas, data, false));
     mountNamed('guestSatisfaction', canvas => satisfactionChart(canvas, data, false));
@@ -735,16 +793,11 @@
     if (y + chartH + 20 > 790) { doc.addPage(); y = 48; }
     doc.text('How guests were contacted', 40, y); y += 8;
     doc.addImage(img, 'PNG', 40, y, W - 80, chartH); y += chartH + 16;
-    const colors = ['#1e22aa','#14b8a6','#7c6bf2','#A8814F','#B14B3F','#4F7A5B'];
     const scoreImg = charts.chartImage(canvas => {
       const options = charts.chartFrame();
       options.animation = false; options.responsive = false;
       options.plugins.legend.display = true;
-      return new Chart(canvas, {type:'line', data:{labels:data.labels, datasets: SCORES.map((row, i) => {
-        const series = charts.areaSeries(canvas, row[1], (data.scores && data.scores[row[0]]) || [], colors[i], '30,34,170');
-        series.spanGaps = true; series.fill = false; series.backgroundColor = colors[i];
-        return series;
-      })}, options});
+      return new Chart(canvas, {type:'line', data:{labels:data.labels, datasets: scoreSets(charts, canvas, data)}, options: scoreScale(options)});
     });
     if (y + chartH + 20 > 790) { doc.addPage(); y = 48; }
     doc.text('Scores (YTD)', 40, y); y += 8;

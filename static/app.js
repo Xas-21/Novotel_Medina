@@ -3731,6 +3731,8 @@
   window.periodQuery = periodQuery;
   window.NovotelCharts = { chartFrame, areaSeries, chartFill, mountChart, chartImage, comboOccupancy, comboOptions, pdfChartHeight };
   window.drawOccupancyChart = drawOccupancyChart;
+  window.monthLastDay = monthLastDay;
+  window.todayStr = todayStr;
   window.drawTrend = drawTrend;
 
   init();

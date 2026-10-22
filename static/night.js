@@ -950,6 +950,7 @@
     el.innerHTML = window.groupByMonth(rows).map(group => `
       <details class="archive-month dmr-card" ${group.key === openKey ? 'open' : ''}>
         <summary>${escapeHtml(group.label)} (${group.entries.length})</summary>
+        <div class="chart-box"><canvas id="night-occ-${group.key}"></canvas></div>
         ${group.entries.map(entry => `
           <div class="dmr-archive-row">
             <div>
@@ -966,6 +967,19 @@
             </div>
           </div>`).join('')}
       </details>`).join('');
+    const drawMonth = key => {
+      if (!window.drawOccupancyChart || !window.occupancySeries) return;
+      const thisMonth = window.todayStr().slice(0, 7);
+      const end = key === thisMonth ? window.todayStr() : window.monthLastDay(key + '-01');
+      window.drawOccupancyChart('night-occ-' + key, window.occupancySeries(nightArchive, key + '-01', end));
+    };
+    window.groupByMonth(rows).forEach(group => drawMonth(group.key));
+    el.querySelectorAll('details.archive-month').forEach(details => {
+      details.ontoggle = () => {
+        const canvas = details.open && details.querySelector('canvas');
+        if (canvas) drawMonth(canvas.id.replace('night-occ-', ''));
+      };
+    });
     el.querySelectorAll('[data-night-open], [data-night-edit]').forEach(btn => {
       btn.onclick = () => openNightDate(btn.dataset.nightOpen || btn.dataset.nightEdit);
     });

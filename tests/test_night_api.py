@@ -425,6 +425,7 @@ def test_index_occupancy_is_calculated_percent(api):
         "status": "draft",
         "submittedBy": None,
         "occupancy": 60,
+        "allMembers": "",
     }]
 
 
@@ -438,6 +439,18 @@ def test_analysis_is_available_to_a_logged_in_user(api):
     assert res.headers["content-type"].startswith("application/json")
     assert isinstance(res.json(), dict)
     assert _night_count(db_path) == 0
+
+
+def test_index_lists_loyalty_members_for_the_archive_chart(api):
+    client, _db_path = api
+    headers = _headers(USERS["night"])
+    body = dict(OCT_8)
+    body["allMembers"] = "71"
+    assert client.put("/api/night", json=body, headers=headers).status_code == 200
+    rows = client.get("/api/night/index", headers=headers).json()
+    assert rows[0]["date"] == "2026-10-08"
+    assert rows[0]["occupancy"] == 60
+    assert rows[0]["allMembers"] == "71"
 
 
 def test_analysis_totals_rooms_sold_and_occupancy(api):
