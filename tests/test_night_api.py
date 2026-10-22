@@ -440,6 +440,21 @@ def test_analysis_is_available_to_a_logged_in_user(api):
     assert _night_count(db_path) == 0
 
 
+def test_analysis_totals_rooms_sold_and_occupancy(api):
+    client, _db_path = api
+    headers = _headers(USERS["night"])
+    assert client.put("/api/night", json=OCT_8, headers=headers).status_code == 200
+    second = dict(OCT_8)
+    second["date"] = "2026-10-06"
+    second["roomsOccupied"] = 100
+    assert client.put("/api/night", json=second, headers=headers).status_code == 200
+    month = client.get("/api/night/analysis?date=2026-10-08&range=month", headers=headers).json()
+    assert month["roomsSold"] == 335
+    assert month["filedNights"] == 2
+    assert month["avgOccupancy"] == round(335 / (394 * 2) * 100, 1)
+    assert month["grandTotal"] == money(2 * (83561.14 + 12833.52 + 406.96))
+
+
 def test_month_analysis_series_and_ood_grand_total(api):
     client, db_path = api
     headers = _headers(USERS["night"])

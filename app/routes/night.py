@@ -320,6 +320,9 @@ async def get_night_analysis(
     revpar = []
     rooms_daily = []
     rooms = fb = me = ood = other = 0.0
+    rooms_sold = 0.0
+    rooms_available = 0
+    filed = 0
     day = start_day
     while day <= report_date:
         labels.append(f"{day.day:02d}")
@@ -345,6 +348,9 @@ async def get_night_analysis(
             adr.append(None if figures["adr"] is None else money(figures["adr"]))
             revpar.append(None if figures["revpar"] is None else money(figures["revpar"]))
             rooms_daily.append(money(row["rooms_revenue"]))
+            rooms_sold += row["rooms_occupied"]
+            rooms_available += row["rooms_available"]
+            filed += 1
             rooms += row["rooms_revenue"]
             fb += row["fb_revenue"]
             me += row["me_revenue"]
@@ -377,6 +383,10 @@ async def get_night_analysis(
             "other": money(other),
         },
         "segments": [{"code": code, "rooms": by_code.get(code, 0)} for code in SEGMENT_CODES],
+        "roomsSold": money(rooms_sold),
+        "filedNights": filed,
+        "avgOccupancy": round(rooms_sold / rooms_available * 100, 1) if rooms_available else None,
+        "grandTotal": money(rooms + fb + me + ood + other),
     }
 
 

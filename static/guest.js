@@ -176,7 +176,7 @@
             ${field('Shift end', `<input type="time" data-top="shiftEnd" value="${escapeHtml(draft.shiftEnd)}" ${dis}>`)}
             ${field('Total VIP arrival', `<input data-top="arrivals" inputmode="decimal" value="${escapeHtml(draft.arrivals)}" ${dis}>`)}
             ${field('Total VIP departure', `<input data-top="departures" inputmode="decimal" value="${escapeHtml(draft.departures)}" ${dis}>`)}
-            <div class="dmr-field"><label>VIP occ %</label><span class="night-calc" id="guestOcc">${escapeHtml(occ)}</span></div>
+            <div class="dmr-field"><label>VIP occ %</label><span class="night-calc" id="guestOcc" style="color:${window.occupancyCss ? window.occupancyCss(occ) : ''}">${escapeHtml(window.withPercent ? window.withPercent(occ) : occ)}</span></div>
           </div>
           ${draft.submittedBy ? `<p class="dmr-prepared-by">Prepared by: ${escapeHtml(draft.submittedBy)}</p>` : ''}
         </div>
@@ -219,7 +219,11 @@
     const target = e.target;
     if (target && target.dataset && target.dataset.top === 'arrivals') {
       const span = document.getElementById('guestOcc');
-      if (span && draft) span.textContent = vipOcc(target.value, draft.roomsAvailable);
+      if (span && draft) {
+        const shown = window.withPercent ? window.withPercent(vipOcc(target.value, draft.roomsAvailable)) : vipOcc(target.value, draft.roomsAvailable);
+        span.textContent = shown;
+        span.style.color = window.occupancyCss ? window.occupancyCss(shown) : '';
+      }
     }
     if (target && target.classList && target.classList.contains('guest-priority')) target.dataset.priority = target.value;
     queue();
@@ -323,7 +327,7 @@
             <div>
               <div class="dmr-archive-date">${escapeHtml(fmtDate(entry.date))}</div>
               <span class="dmr-badge ${entry.status === 'submitted' ? 'dmr-badge-submitted' : 'dmr-badge-draft'}">${entry.status === 'submitted' ? 'Submitted' : 'Draft'}</span>
-              ${entry.occupancy ? `<span style="font-size:12px;color:var(--ink-soft);margin-left:8px;">Occ: ${escapeHtml(String(entry.occupancy).replace('%','').trim())}%</span>` : ''}
+              ${entry.occupancy ? `<span style="font-size:12px;margin-left:8px;font-weight:700;color:${window.occupancyCss ? window.occupancyCss(entry.occupancy) : ''}">Occ: ${escapeHtml(window.withPercent ? window.withPercent(entry.occupancy) : String(entry.occupancy).replace(/%/g,'').trim() + '%')}</span>` : ''}
               ${entry.status === 'submitted' && entry.submittedBy ? `<div class="dmr-prepared-by">Prepared by: ${escapeHtml(entry.submittedBy)}</div>` : ''}
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -380,6 +384,7 @@
     const options = chartOptions(forPdf);
     options.scales.x.display = false;
     options.scales.y.display = false;
+    options.plugins.legend.position = 'bottom';
     const priority = data.priority || {};
     return new Chart(canvas, {type:'doughnut', data:{labels:['Normal','Mid','Urgent'], datasets:[{data:[priority.Normal||0, priority.Mid||0, priority.Urgent||0], backgroundColor:['#1e22aa','#b8860b','#B14B3F'], borderWidth:2, borderColor:'#fff'}]}, options});
   }
@@ -427,6 +432,30 @@
     canvas._chart = draw(canvas, false);
   }
 
+  function guestTiers(data){
+    const tones = window.kpiTones;
+    const n = window.kpiNumber;
+    const mood = data.satisfaction || {};
+    const scoreCard = (label, value, note, empty) => ({ label: label, value: value == null ? '—' : n(value, 1), tone: 'teal', note: value == null ? empty : note });
+    return [
+      { title: 'VIP Occupancy & Guest Scores', kind: 'hero', cards: [
+        window.occupancyCard('Avg VIP occ', data.avgVipOcc, 'VIP arrivals ÷ hotel rooms', Number(data.avgVipOcc) > 0 ? { badge: 'Active', badgeColor: tones.indigo } : {}),
+        scoreCard('Avg departure score', data.avgDeparture, 'Departure courtesy call score', 'No departure surveys recorded'),
+        scoreCard('Avg employee call rating', data.avgEmployee, 'Rating given to the calling employee', 'No call ratings recorded')
+      ] },
+      { title: 'Report Submission & Guest Satisfaction', kind: 'pair', cards: [
+        { title: 'Guest Relation Logs', done: data.submitted || 0, open: data.missing || 0, doneLabel: 'Reports submitted', openLabel: 'Days not submitted' },
+        { title: 'In-house Satisfaction', done: mood.Satisfied || 0, open: data.notSatisfied || 0, doneWord: 'Satisfied', doneLabel: 'Satisfied guests', openLabel: 'Not satisfied guests', unit: 'guests', openWord: 'not satisfied' }
+      ] },
+      { title: 'Guest Calls & Escalations', kind: 'compact', cards: [
+        { label: 'Welcome calls', value: n(data.welcomeCalls || 0), tone: 'indigo', note: 'In-house welcome calls made' },
+        { label: 'Departure calls', value: n(data.departureCalls || 0), tone: 'indigo', note: 'Departure courtesy calls made' },
+        { label: 'Guests with comments', value: n(mood['Have Comment'] || 0), tone: 'amber', note: 'In-house guests who left a comment' },
+        { label: 'Urgent guest actions', value: n(data.urgent || 0), tone: 'crimson', note: data.urgent ? 'Guest rows marked urgent' : 'No urgent escalations' }
+      ] }
+    ];
+  }
+
   async function loadAnalysis(){
     const el = document.getElementById('guestAnalysis');
     const data = await window.apiFetch('/api/guest/analysis?' + window.periodQuery());
@@ -434,17 +463,7 @@
     window.guestAnalysis = data;
     el.innerHTML = `
       <p class="dmr-sub">${escapeHtml(data.startDate)} to ${escapeHtml(data.endDate)}</p>
-      <div class="dmr-stat-grid">
-        <div class="dmr-card dmr-stat tone-ok"><div class="num">${data.submitted}</div><div class="lbl">Reports submitted</div></div>
-        <div class="dmr-card dmr-stat tone-danger"><div class="num">${data.missing}</div><div class="lbl">Days not submitted</div></div>
-        <div class="dmr-card dmr-stat tone-navy"><div class="num">${data.welcomeCalls}</div><div class="lbl">Welcome calls</div></div>
-        <div class="dmr-card dmr-stat tone-navy"><div class="num">${data.departureCalls}</div><div class="lbl">Departure calls</div></div>
-        <div class="dmr-card dmr-stat tone-warn"><div class="num">${data.notSatisfied}</div><div class="lbl">Not satisfied</div></div>
-        <div class="dmr-card dmr-stat tone-danger"><div class="num">${data.urgent || 0}</div><div class="lbl">Urgent guest actions</div></div>
-        <div class="dmr-card dmr-stat tone-teal"><div class="num">${data.avgDeparture == null ? '—' : data.avgDeparture}</div><div class="lbl">Avg departure score</div></div>
-        <div class="dmr-card dmr-stat tone-teal"><div class="num">${data.avgEmployee == null ? '—' : data.avgEmployee}</div><div class="lbl">Avg employee call rating</div></div>
-        <div class="dmr-card dmr-stat tone-navy"><div class="num">${data.avgVipOcc == null ? '—' : data.avgVipOcc + '%'}</div><div class="lbl">Avg VIP occ</div></div>
-      </div>
+      ${window.kpiBoard(guestTiers(data))}
       <div class="dmr-card dmr-chart-card"><h3>How guests were contacted</h3><div class="chart-box"><canvas id="guestChannels"></canvas></div></div>
       <div class="dmr-card dmr-chart-card"><h3>Scores (YTD)</h3><div class="chart-box"><canvas id="guestScores"></canvas></div></div>
       <div class="dmr-card dmr-chart-card"><h3>Priority by section</h3><div class="chart-box"><canvas id="guestSectionPriority"></canvas></div></div>
@@ -632,7 +651,7 @@
     y += 16;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(110, 120, 132);
     doc.text('Shift: ' + (data.shiftStart || '—') + '  to  ' + (data.shiftEnd || '—'), 40, y);
-    const occText = data.occupancy ? data.occupancy + '%' : '—';
+    const occText = window.withPercent ? (window.withPercent(data.occupancy) || '—') : (data.occupancy ? data.occupancy + '%' : '—');
     const occColor = window.occupancyColor ? window.occupancyColor(data.occupancy) : [110, 120, 132];
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(occColor[0], occColor[1], occColor[2]);
@@ -704,18 +723,18 @@
     const doc = new jsPDF({unit:'pt', format:'a4'});
     const W = doc.internal.pageSize.getWidth();
     let y = pdf.pdfHeader(doc, W, await pdf.getLogoDataUrl(), 'GUEST RELATION ANALYSIS');
-    doc.setFontSize(10); doc.text(data.startDate + ' to ' + data.endDate, 40, y); y += 16;
-    doc.text('Submitted ' + data.submitted + '   Not submitted ' + data.missing + '   Not satisfied ' + data.notSatisfied + '   Urgent ' + (data.urgent || 0), 40, y); y += 14;
-    doc.text('Avg departure ' + (data.avgDeparture == null ? '—' : data.avgDeparture) + '   Avg employee rating ' + (data.avgEmployee == null ? '—' : data.avgEmployee) + '   Avg VIP occ ' + (data.avgVipOcc == null ? '—' : data.avgVipOcc + '%'), 40, y); y += 16;
+    doc.setFontSize(10); doc.text(data.startDate + ' to ' + data.endDate, 40, y); y += 12;
+    y = pdf.pdfKpiBoard(doc, W, y, guestTiers(data));
     const img = charts.chartImage(canvas => {
       const options = charts.chartFrame();
       options.animation = false; options.responsive = false;
       const channels = data.channels || {};
       return new Chart(canvas, {type:'bar', data:{labels:['Call','WhatsApp','Email'], datasets:[{data:[channels.Call||0, channels.WhatsApp||0, channels.Email||0], backgroundColor:['#1e22aa','#14b8a6','#7c6bf2'], borderRadius:8}]}, options});
     });
-    if (y > 560) { doc.addPage(); y = 48; }
+    const chartH = charts.pdfChartHeight(W - 80);
+    if (y + chartH + 20 > 790) { doc.addPage(); y = 48; }
     doc.text('How guests were contacted', 40, y); y += 8;
-    doc.addImage(img, 'JPEG', 40, y, W - 80, 140); y += 156;
+    doc.addImage(img, 'PNG', 40, y, W - 80, chartH); y += chartH + 16;
     const colors = ['#1e22aa','#14b8a6','#7c6bf2','#A8814F','#B14B3F','#4F7A5B'];
     const scoreImg = charts.chartImage(canvas => {
       const options = charts.chartFrame();
@@ -727,9 +746,9 @@
         return series;
       })}, options});
     });
-    if (y > 620) { doc.addPage(); y = 48; }
+    if (y + chartH + 20 > 790) { doc.addPage(); y = 48; }
     doc.text('Scores (YTD)', 40, y); y += 8;
-    doc.addImage(scoreImg, 'JPEG', 40, y, W - 80, 140); y += 156;
+    doc.addImage(scoreImg, 'PNG', 40, y, W - 80, chartH); y += chartH + 16;
     const extra = [
       ['Priority by section', canvas => sectionPriorityChart(canvas, data, true)],
       ['In-house satisfaction', canvas => satisfactionChart(canvas, data, true)],
@@ -739,10 +758,10 @@
     ];
     extra.forEach(item => {
       const image = charts.chartImage(item[1]);
-      if (y > 620) { doc.addPage(); y = 48; }
+      if (y + chartH + 20 > 790) { doc.addPage(); y = 48; }
       doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(28,43,57);
       doc.text(item[0], 40, y); y += 8;
-      doc.addImage(image, 'JPEG', 40, y, W - 80, 140); y += 156;
+      doc.addImage(image, 'PNG', 40, y, W - 80, chartH); y += chartH + 16;
     });
     pdf.addPdfFooter(doc, W, 'Novotel — Guest Relation Analysis');
     doc.save('novotel-guest-analysis-' + data.startDate + '-to-' + data.endDate + '.pdf');

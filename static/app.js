@@ -103,6 +103,17 @@
     return NOVOTEL.danger;               // 1–10% → red
   }
 
+  function withPercent(value){
+    if (value == null || String(value).trim() === '') return '';
+    const raw = String(value).replace(/%/g, '').trim();
+    if (raw === '' || !Number.isFinite(Number(raw))) return String(value);
+    return raw + '%';
+  }
+
+  function occupancyCss(value){
+    return 'rgb(' + occupancyColor(value).join(',') + ')';
+  }
+
   function actionStatusColor(status) {
     if (status === 'closed') return NOVOTEL.ok;
     if (status === 'progress') return [196, 129, 60];
@@ -277,17 +288,6 @@
       doc.text(label || 'Novotel — Duty Manager Report', 40, H - 18);
       doc.text(`Page ${i} of ${total}`, W - 40, H - 18, {align:'right'});
     }
-  }
-
-  function drawStatBox(doc, x, y, w, h, value, label, color) {
-    doc.setFillColor(...color);
-    doc.rect(x, y, w, h, 'F');
-    doc.setTextColor(255,255,255);
-    doc.setFont('helvetica','bold'); doc.setFontSize(15);
-    doc.text(value, x + w / 2, y + 24, {align:'center'});
-    doc.setFont('helvetica','normal'); doc.setFontSize(6.8);
-    doc.setTextColor(235,240,245);
-    doc.text(label.toUpperCase(), x + w / 2, y + h - 7, {align:'center'});
   }
 
   // ---------- API Layer ----------
@@ -859,7 +859,7 @@
         <div class="dmr-row">
           <div class="dmr-field"><label>Shift Start</label><input type="time" data-gf="shiftStart" value="${r.shiftStart}"></div>
           <div class="dmr-field"><label>Shift End</label><input type="time" data-gf="shiftEnd" value="${r.shiftEnd}"></div>
-          <div class="dmr-field"><label>Occupancy %</label><input type="text" inputmode="decimal" data-gf="occupancy" value="${escapeHtml(r.occupancy)}" placeholder="e.g. 88%"></div>
+          <div class="dmr-field"><label>Occupancy %</label><input type="text" inputmode="decimal" data-gf="occupancy" value="${escapeHtml(withPercent(r.occupancy))}" placeholder="e.g. 88%" style="color:${occupancyCss(r.occupancy)};font-weight:700"></div>
         </div>
         <div class="dmr-row">
           <div class="dmr-field"><label>Arrivals</label><input type="text" inputmode="numeric" data-gf="arrivals" value="${escapeHtml(r.arrivals)}"></div>
@@ -1421,7 +1421,7 @@
               <span class="dmr-badge ${e.status==='submitted'?'dmr-badge-submitted':'dmr-badge-draft'}">
                 ${e.status==='submitted'?'Submitted':'Draft'}
               </span>
-              ${e.occupancy ? `<span style="font-size:12px;color:var(--ink-soft);margin-left:8px;">Occ: ${escapeHtml(String(e.occupancy).replace('%','').trim())}%</span>` : ''}
+              ${e.occupancy ? `<span style="font-size:12px;margin-left:8px;font-weight:700;color:${occupancyCss(e.occupancy)}">Occ: ${escapeHtml(withPercent(e.occupancy))}</span>` : ''}
               ${e.notesCount ? `<span style="font-size:12px;color:var(--ink-soft);margin-left:8px;">${e.notesCount} note${e.notesCount===1?'':'s'}</span>` : ''}
               ${e.status==='submitted' && e.submittedBy ? `<div class="dmr-prepared-by">Prepared by: ${escapeHtml(e.submittedBy)}</div>` : ''}
             </div>
@@ -1465,6 +1465,283 @@
   }
 
   // ---------- Analysis View ----------
+  const KPI_TONES = { indigo: '#1e22aa', teal: '#0f766e', amber: '#b45309', crimson: '#b91c1c', green: '#1f6f4a' };
+
+  function kpiNumber(value, digits){
+    if (value == null || value === '' || value === '—') return '—';
+    const n = Number(value);
+    if (!Number.isFinite(n)) return String(value);
+    return n.toLocaleString('en-US', { maximumFractionDigits: digits == null ? 0 : digits });
+  }
+
+  function kpiFigure(card, cls){
+    const shown = card.value == null || card.value === '' ? '—' : String(card.value);
+    const color = card.color || KPI_TONES[card.tone] || KPI_TONES.indigo;
+    const unit = card.unit && shown !== '—' ? `<span class="kpi-unit">${escapeHtml(card.unit)}</span>` : '';
+    return `<div class="${cls}" style="color:${color}">${escapeHtml(shown)}${unit}</div>`;
+  }
+
+  function kpiHero(card){
+    const badge = card.badge ? `<span class="kpi-badge" style="color:${card.badgeColor || KPI_TONES[card.tone] || KPI_TONES.indigo}">${escapeHtml(card.badge)}</span>` : '';
+    return `<div class="kpi-card kpi-hero"><div class="kpi-top"><span class="kpi-label">${escapeHtml(card.label)}</span>${badge}</div>${kpiFigure(card, 'kpi-figure')}<div class="kpi-note">${escapeHtml(card.note || '')}</div></div>`;
+  }
+
+  function kpiCompact(card){
+    return `<div class="kpi-card kpi-compact"><div class="kpi-label">${escapeHtml(card.label)}</div>${kpiFigure(card, 'kpi-figure kpi-figure-sm')}<div class="kpi-note">${escapeHtml(card.note || '')}</div></div>`;
+  }
+
+  function kpiPair(card){
+    const done = Number(card.done) || 0;
+    const open = Number(card.open) || 0;
+    const total = done + open;
+    const pct = total > 0 ? done / total * 100 : 0;
+    const fill = total > 0 && done > 0 ? Math.max(pct, 2) : 0;
+    const unit = total === 1 ? (card.unit || 'days').replace(/s$/, '') : (card.unit || 'days');
+    const tag = card.id ? 'button' : 'div';
+    const attrs = card.id ? ` type="button" id="${card.id}"` : '';
+    return `<${tag} class="kpi-card kpi-pair"${attrs}>
+      <div class="kpi-pair-head"><span class="kpi-pair-title">${escapeHtml(card.title)}</span><span class="kpi-pair-pct">${pct.toFixed(1)}% ${escapeHtml(card.doneWord || 'Submitted')}</span></div>
+      <div class="kpi-split">
+        <div class="kpi-side kpi-good"><div class="kpi-side-num">${kpiNumber(done)}</div><div class="kpi-side-lbl">${escapeHtml(card.doneLabel)}</div></div>
+        <div class="kpi-side kpi-bad"><div class="kpi-side-num">${kpiNumber(open)}</div><div class="kpi-side-lbl">${escapeHtml(card.openLabel)}</div></div>
+      </div>
+      <div class="kpi-pair-foot">
+        <div class="kpi-bar${total ? '' : ' is-empty'}"><span class="kpi-bar-done" style="width:${fill}%"></span></div>
+        <div class="kpi-bar-text"><span>Total tracked: ${kpiNumber(total)} ${escapeHtml(unit)}</span><span class="kpi-pending">${kpiNumber(open)} ${escapeHtml(card.openWord || 'pending')}</span></div>
+      </div>
+    </${tag}>`;
+  }
+
+  function kpiBoard(tiers){
+    const shown = tiers.filter(tier => tier.cards && tier.cards.length);
+    return `<section class="kpi-board">${shown.map((tier, i) => {
+      const draw = tier.kind === 'pair' ? kpiPair : (tier.kind === 'compact' ? kpiCompact : kpiHero);
+      return `<div class="kpi-tier"><div class="kpi-tier-title">${String(i + 1).padStart(2, '0')}. ${escapeHtml(tier.title)}</div><div class="kpi-grid kpi-grid-${tier.kind || 'hero'}">${tier.cards.map(draw).join('')}</div></div>`;
+    }).join('')}</section>`;
+  }
+
+  function gssStatus(value){
+    const n = Number(value);
+    if (value == null || value === '' || value === '—' || !Number.isFinite(n)) return {};
+    if (n >= 90) return { badge: 'Excellent', badgeColor: KPI_TONES.teal };
+    if (n >= 80) return { badge: 'Good', badgeColor: KPI_TONES.teal };
+    return { badge: 'Needs attention', badgeColor: KPI_TONES.amber };
+  }
+
+  function occupancyCard(label, value, note, extra){
+    const n = Number(value);
+    const has = value != null && value !== '' && Number.isFinite(n);
+    return Object.assign({
+      label: label,
+      value: has ? kpiNumber(n, 1) + '%' : '—',
+      color: has ? occupancyCss(n) : KPI_TONES.indigo,
+      note: note
+    }, extra || {});
+  }
+
+  function periodDays(from, to){
+    if (!from || !to) return 0;
+    const start = new Date(from + 'T00:00:00');
+    const end = new Date(to + 'T00:00:00');
+    return Math.max(0, Math.round((end - start) / 86400000) + 1);
+  }
+
+  function dutyTiers(data, index){
+    const rows = (index || []).filter(row => row.date >= data.startDate && row.date <= data.endDate);
+    const submitted = rows.filter(row => row.status === 'submitted').length;
+    const missing = Math.max(0, periodDays(data.startDate, data.endDate) - submitted);
+    const occ = rows.map(row => parseOccupancy(row.occupancy)).filter(v => v != null);
+    const avgOcc = occ.length ? occ.reduce((a, b) => a + b, 0) / occ.length : null;
+    const items = data.actionItems || [];
+    const closed = items.filter(item => item.status === 'closed').length;
+    return [
+      { title: 'Guest Satisfaction & Occupancy', kind: 'hero', cards: [
+        Object.assign({ label: 'Avg TrustYou GSS', value: data.avgGss, tone: 'teal', note: 'Out of 100 guest score index' }, gssStatus(data.avgGss)),
+        occupancyCard('Avg Occupancy %', avgOcc, 'Average of the duty reports in this period'),
+        { label: 'Total Reviews Analyzed', value: data.reviewsSum ? kpiNumber(data.reviewsSum) : '—', tone: 'indigo', note: 'TrustYou reviews in this period' }
+      ] },
+      { title: 'Report Submission & Follow-up', kind: 'pair', cards: [
+        { title: 'Duty Reports Submission', done: submitted, open: missing, doneLabel: 'Duty reports submitted', openLabel: 'Duty days not submitted' },
+        { title: 'Courtesy Calls', done: data.courtesyPos || 0, open: data.courtesyNeg || 0, doneWord: 'Positive', doneLabel: 'Positive impressions', openLabel: 'Negative impressions', unit: 'calls', openWord: 'negative' },
+        { title: 'Action Items', id: 'openActionsCard', done: closed, open: data.totalNotesOpen || 0, doneWord: 'Closed', doneLabel: 'Closed items', openLabel: 'Open items', unit: 'items', openWord: 'open' }
+      ] },
+      { title: 'Quality Control & Incidents', kind: 'compact', cards: [
+        { label: 'Checklist failures', value: kpiNumber(data.totalFail), tone: 'amber', note: data.totalFail ? 'Flagged across daily inspections' : 'No inspection failures' },
+        { label: 'Guest complaints', value: kpiNumber((data.complaintsList || []).length), tone: 'indigo', note: 'Logged during this period' },
+        { label: 'Incidents logged', value: kpiNumber(data.totalIncidents), tone: 'crimson', note: data.totalIncidents ? 'Recorded on duty reports' : 'No incidents recorded' }
+      ] }
+    ];
+  }
+
+  function pdfRgb(color){
+    if (Array.isArray(color)) return color;
+    const text = String(color || '');
+    const rgb = text.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (rgb) return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])];
+    if (/^#[0-9a-f]{6}$/i.test(text)) return [1, 3, 5].map(i => parseInt(text.slice(i, i + 2), 16));
+    return [30, 34, 170];
+  }
+
+  function pdfKpiLayout(tiers, inner){
+    const gap = 8;
+    return tiers.filter(tier => tier.cards && tier.cards.length).map(tier => {
+      const kind = tier.kind || 'hero';
+      const max = kind === 'hero' ? 3 : (kind === 'pair' ? 3 : 5);
+      const cols = Math.min(tier.cards.length, max);
+      const cardW = (inner - gap * (cols - 1)) / cols;
+      const cardH = kind === 'hero' ? 70 : (kind === 'pair' ? 96 : 64);
+      const rows = Math.ceil(tier.cards.length / cols);
+      return { tier: tier, kind: kind, cols: cols, cardW: cardW, cardH: cardH, height: 14 + rows * cardH + (rows - 1) * gap };
+    });
+  }
+
+  function pdfKpiText(doc, text, x, y, size, color, style, opts){
+    doc.setFont('helvetica', style || 'normal');
+    doc.setFontSize(size);
+    doc.setTextColor(...color);
+    doc.text(String(text), x, y, opts || {});
+  }
+
+  function pdfKpiFigure(doc, card, x, y, size){
+    const shown = card.value == null || card.value === '' ? '—' : String(card.value);
+    const color = pdfRgb(card.color || KPI_TONES[card.tone] || KPI_TONES.indigo);
+    pdfKpiText(doc, shown, x, y, size, color, 'bold');
+    if (card.unit && shown !== '—') {
+      const width = doc.getTextWidth(shown);
+      pdfKpiText(doc, card.unit, x + width + 3, y, size * 0.42, [100, 116, 139], 'bold');
+    }
+  }
+
+  function pdfKpiNote(doc, text, x, y, width, size, lines){
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(size);
+    const wrapped = doc.splitTextToSize(String(text || ''), width).slice(0, lines);
+    doc.setTextColor(100, 116, 139);
+    doc.text(wrapped, x, y);
+  }
+
+  function pdfKpiCard(doc, x, y, w, h){
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.6);
+    doc.roundedRect(x, y, w, h, 5, 5, 'FD');
+  }
+
+  function pdfKpiDivider(doc, x, y, w){
+    doc.setDrawColor(241, 245, 249);
+    doc.setLineWidth(0.7);
+    doc.line(x, y, x + w, y);
+  }
+
+  function pdfKpiHero(doc, card, x, y, w, h){
+    pdfKpiCard(doc, x, y, w, h);
+    const pad = 10;
+    pdfKpiText(doc, card.label, x + pad, y + 15, 7, [100, 116, 139], 'normal');
+    if (card.badge) {
+      pdfKpiText(doc, card.badge, x + w - pad, y + 15, 7, pdfRgb(card.badgeColor || KPI_TONES[card.tone] || KPI_TONES.indigo), 'bold', { align: 'right' });
+    }
+    pdfKpiFigure(doc, card, x + pad, y + 39, 17);
+    pdfKpiDivider(doc, x + pad, y + 48, w - pad * 2);
+    pdfKpiNote(doc, card.note, x + pad, y + 59, w - pad * 2, 6.5, 1);
+  }
+
+  function pdfKpiCompact(doc, card, x, y, w, h){
+    pdfKpiCard(doc, x, y, w, h);
+    const pad = 9;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(71, 85, 105);
+    doc.text(doc.splitTextToSize(card.label, w - pad * 2).slice(0, 1), x + pad, y + 14);
+    pdfKpiFigure(doc, card, x + pad, y + 34, 15);
+    pdfKpiDivider(doc, x + pad, y + 42, w - pad * 2);
+    pdfKpiNote(doc, card.note, x + pad, y + 51, w - pad * 2, 6, 2);
+  }
+
+  function pdfKpiPair(doc, card, x, y, w, h){
+    pdfKpiCard(doc, x, y, w, h);
+    const pad = 10;
+    const done = Number(card.done) || 0;
+    const open = Number(card.open) || 0;
+    const total = done + open;
+    const pct = total > 0 ? done / total * 100 : 0;
+    const unit = total === 1 ? (card.unit || 'days').replace(/s$/, '') : (card.unit || 'days');
+    const room = w - pad * 2;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    const titleW = doc.getTextWidth(card.title);
+    doc.setFontSize(7);
+    let pctText = pct.toFixed(1) + '% ' + (card.doneWord || 'Submitted');
+    if (titleW + doc.getTextWidth(pctText) + 8 > room) pctText = pct.toFixed(1) + '%';
+    const titleSize = titleW + doc.getTextWidth(pctText) + 8 > room ? 7.5 : 8.5;
+    pdfKpiText(doc, card.title, x + pad, y + 16, titleSize, [30, 41, 59], 'bold');
+    pdfKpiText(doc, pctText, x + w - pad, y + 16, 7, [100, 116, 139], 'bold', { align: 'right' });
+    const boxGap = 6;
+    const boxW = (w - pad * 2 - boxGap) / 2;
+    const boxY = y + 24;
+    const boxH = 40;
+    [
+      { value: done, label: card.doneLabel, fill: [240, 253, 244], line: [187, 247, 208], ink: [31, 111, 74] },
+      { value: open, label: card.openLabel, fill: [254, 242, 242], line: [254, 202, 202], ink: [185, 28, 28] }
+    ].forEach((side, i) => {
+      const bx = x + pad + i * (boxW + boxGap);
+      doc.setFillColor(...side.fill);
+      doc.setDrawColor(...side.line);
+      doc.setLineWidth(0.6);
+      doc.roundedRect(bx, boxY, boxW, boxH, 4, 4, 'FD');
+      pdfKpiText(doc, kpiNumber(side.value), bx + 7, boxY + 16, 13, side.ink, 'bold');
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6);
+      doc.setTextColor(71, 85, 105);
+      doc.text(doc.splitTextToSize(String(side.label || ''), boxW - 12).slice(0, 2), bx + 7, boxY + 27);
+    });
+    pdfKpiDivider(doc, x + pad, y + 71, w - pad * 2);
+    const barX = x + pad;
+    const barY = y + 76;
+    const barW = w - pad * 2;
+    doc.setFillColor(...(total ? [228, 92, 92] : [226, 232, 240]));
+    doc.roundedRect(barX, barY, barW, 4, 2, 2, 'F');
+    if (total && done) {
+      doc.setFillColor(22, 163, 74);
+      doc.roundedRect(barX, barY, Math.max(barW * pct / 100, 4), 4, 2, 2, 'F');
+    }
+    pdfKpiText(doc, 'Total tracked: ' + kpiNumber(total) + ' ' + unit, barX, y + 89, 6.3, [100, 116, 139], 'normal');
+    pdfKpiText(doc, kpiNumber(open) + ' ' + (card.openWord || 'pending'), barX + barW, y + 89, 6.3, [185, 28, 28], 'bold', { align: 'right' });
+  }
+
+  function pdfKpiBoard(doc, W, y, tiers){
+    const pad = 12;
+    const left = 40;
+    const width = W - 80;
+    const inner = width - pad * 2;
+    const layout = pdfKpiLayout(tiers, inner);
+    if (!layout.length) return y;
+    const tierGap = 12;
+    const height = pad * 2 + layout.reduce((sum, item) => sum + item.height, 0) + tierGap * (layout.length - 1);
+    if (y + height > 790) { doc.addPage(); y = 45; }
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.7);
+    doc.roundedRect(left, y, width, height, 8, 8, 'FD');
+    let cy = y + pad;
+    layout.forEach((item, t) => {
+      pdfKpiText(doc, String(t + 1).padStart(2, '0') + '. ' + item.tier.title, left + pad, cy + 7, 9, [15, 23, 42], 'bold');
+      const top = cy + 14;
+      const draw = item.kind === 'pair' ? pdfKpiPair : (item.kind === 'compact' ? pdfKpiCompact : pdfKpiHero);
+      item.tier.cards.forEach((card, i) => {
+        const col = i % item.cols;
+        const row = Math.floor(i / item.cols);
+        draw(doc, card, left + pad + col * (item.cardW + 8), top + row * (item.cardH + 8), item.cardW, item.cardH);
+      });
+      cy += item.height + tierGap;
+    });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(35, 48, 61);
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.2);
+    return y + height + 14;
+  }
+
   function renderAnalysis() {
     return `
     <div class="dmr-headline"><h1>Operations & Trend Analysis</h1></div>
@@ -1482,16 +1759,7 @@
     if (!body || !data) return;
 
     body.innerHTML = `
-      <div class="dmr-stat-grid">
-        <div class="dmr-card dmr-stat"><div class="num">${data.days}</div><div class="lbl">Days Analyzed</div></div>
-        <div class="dmr-card dmr-stat"><div class="num">${data.totalFail}</div><div class="lbl">Checklist Failures (✗)</div></div>
-        <div class="dmr-card dmr-stat"><div class="num">${data.complaintsList.length}</div><div class="lbl">Guest Complaints</div></div>
-        <div class="dmr-card dmr-stat"><div class="num">${data.totalIncidents}</div><div class="lbl">Incidents Logged</div></div>
-        <button type="button" class="dmr-card dmr-stat dmr-stat-btn" id="openActionsCard"><div class="num">${data.totalNotesOpen}</div><div class="lbl">Action Items Open</div></button>
-        <div class="dmr-card dmr-stat"><div class="num">${data.courtesyNeg}</div><div class="lbl">Negative Courtesy Calls</div></div>
-        <div class="dmr-card dmr-stat"><div class="num">${data.avgGss}</div><div class="lbl">Avg. TrustYou GSS</div></div>
-        <div class="dmr-card dmr-stat"><div class="num">${data.reviewsSum || '—'}</div><div class="lbl">Total Reviews Analyzed</div></div>
-      </div>
+      ${kpiBoard(dutyTiers(data, index))}
       ${actionItemsHtml(data.actionItems)}
 
       <div class="dmr-card dmr-chart-card">
@@ -1825,19 +2093,492 @@
       }
     });
     window.Chart.__whiteBackground = true;
+    registerPdfLook();
+  }
+
+  let pdfChartPass = false;
+  const PDF_CHART_SCALE = 3;
+  const PDF_CHART_W = 920;
+  const PDF_CHART_H = 304;
+  const PDF_FONT = 'Aptos, Calibri, "Segoe UI", sans-serif';
+  const BADGE_FONT = '700 11.5px ' + PDF_FONT;
+
+  function pdfChartHeight(width){
+    return width * PDF_CHART_H / PDF_CHART_W;
+  }
+
+  function registerPdfLook(){
+    if (!window.Chart || window.Chart.__pdfLook) return;
+    window.Chart.register({
+      id: 'pdfLook',
+      beforeInit(chart) { if (pdfChartPass) stylePdfChart(chart); },
+      afterDatasetsDraw(chart) { if (pdfChartPass) drawPdfLabels(chart); }
+    });
+    window.Chart.__pdfLook = true;
+  }
+
+  function hexOf(color, fallback){
+    if (typeof color !== 'string') return fallback || '#1e22aa';
+    const c = color.trim();
+    if (/^#[0-9a-f]{6}$/i.test(c)) return c.toLowerCase();
+    if (/^#[0-9a-f]{3}$/i.test(c)) return '#' + c.slice(1).split('').map(ch => ch + ch).join('').toLowerCase();
+    const m = c.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (m) return '#' + [m[1], m[2], m[3]].map(v => Number(v).toString(16).padStart(2, '0')).join('');
+    return fallback || '#1e22aa';
+  }
+
+  function rgbOf(color){
+    const h = hexOf(color);
+    return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  }
+
+  function rgbaOf(color, alpha){
+    return 'rgba(' + rgbOf(color).join(',') + ',' + alpha + ')';
+  }
+
+  function deepen(color, amount){
+    return '#' + rgbOf(color).map(v => Math.round(v * (1 - amount)).toString(16).padStart(2, '0')).join('');
+  }
+
+  function isLineSet(chart, ds){
+    return (ds.type || chart.config.type) === 'line';
+  }
+
+  function pdfKind(chart, ds){
+    const name = String(ds.label || '');
+    if (/loyalty/i.test(name)) return 'loyalty';
+    if (/occ|%/i.test(name)) return 'percent';
+    if (/adr|revpar|revenue/i.test(name)) return 'money';
+    if ((chart.data.labels || []).indexOf('F&B') >= 0) return 'money';
+    return 'number';
+  }
+
+  function pdfValue(n, kind, where){
+    const whole = v => Math.round(v).toLocaleString('en-US');
+    if (kind === 'percent') return Math.round(n) + '%';
+    if (kind === 'money') {
+      const compact = Math.abs(n) >= 10000 ? (Math.round(n / 100) / 10).toLocaleString('en-US') + 'K' : whole(n);
+      if (where === 'line') return compact;
+      if (where === 'total') return compact + ' SAR';
+      return whole(n) + ' SAR';
+    }
+    if (Math.abs(n - Math.round(n)) < 0.05) return whole(n);
+    return (Math.round(n * 10) / 10).toLocaleString('en-US');
+  }
+
+  function stylePdfChart(chart){
+    const cfg = chart.config;
+    const arc = cfg.type === 'doughnut' || cfg.type === 'pie';
+    const opts = cfg.options || (cfg.options = {});
+    const plugins = opts.plugins || (opts.plugins = {});
+    const datasets = (cfg.data && cfg.data.datasets) || [];
+    const horizontal = opts.indexAxis === 'y';
+    const height = chart.height || PDF_CHART_H;
+    const ctx = chart.ctx;
+    const scales = opts.scales || {};
+    const stacked = !!((scales.x && scales.x.stacked) || (scales.y && scales.y.stacked));
+    opts.animation = false;
+    opts.layout = { padding: arc ? 10 : { top: 30, right: 20, bottom: 4, left: 8 } };
+    if (arc) opts.cutout = '58%';
+    if (plugins.legend && plugins.legend.display) {
+      plugins.legend.align = plugins.legend.position === 'bottom' ? 'center' : 'end';
+      plugins.legend.labels = Object.assign({}, plugins.legend.labels, {
+        usePointStyle: true,
+        boxWidth: 9,
+        boxHeight: 9,
+        padding: 16,
+        color: '#334155',
+        font: { family: PDF_FONT, size: 13, weight: '600' }
+      });
+    }
+    if (!arc && opts.scales) {
+      Object.keys(scales).forEach(id => {
+        const axis = scales[id];
+        if (!axis || axis.display === false) return;
+        const categoryAxis = horizontal ? id === 'y' : id === 'x';
+        axis.ticks = Object.assign({}, axis.ticks, {
+          color: '#64748b',
+          padding: 6,
+          font: { family: PDF_FONT, size: 12, weight: '500' }
+        });
+        if (axis.title && axis.title.display) {
+          axis.title = Object.assign({}, axis.title, { font: { family: PDF_FONT, size: 12, weight: '600' } });
+        }
+        if (categoryAxis) {
+          axis.ticks.maxRotation = 0;
+          axis.ticks.autoSkip = true;
+          axis.ticks.maxTicksLimit = 40;
+          axis.border = { display: true, color: '#d6dbe3', width: 1 };
+          axis.grid = { display: false };
+        } else {
+          axis.border = { display: false };
+          const percentAxis = axis.suggestedMax === 100;
+          if (!horizontal && percentAxis) {
+            axis.max = 120;
+            axis.ticks.stepSize = 10;
+            axis.ticks.callback = value => value > 100 ? '' : value;
+          } else if (!horizontal && axis.suggestedMax == null && axis.max == null) {
+            axis.grace = '22%';
+          }
+          if (!axis.grid || axis.grid.display !== false || horizontal) {
+            axis.grid = {
+              display: id !== 'y1',
+              color: tick => (percentAxis && tick.tick && tick.tick.value > 100) ? 'rgba(0,0,0,0)' : '#edf0f4',
+              lineWidth: 1,
+              drawTicks: false
+            };
+          }
+        }
+      });
+    }
+    const loyalty = datasets.find(ds => pdfKind(chart, ds) === 'loyalty');
+    if (loyalty && scales.y1) {
+      const top = Math.max(0, ...(loyalty.data || []).map(v => Number(v) || 0));
+      if (top > 0) scales.y1.suggestedMax = Math.ceil(top * 1.8);
+    }
+    const lineCount = datasets.filter(ds => isLineSet(chart, ds)).length;
+    const moneyLine = datasets.some(ds => isLineSet(chart, ds) && pdfKind(chart, ds) === 'money');
+    if (moneyLine && scales.y && !(scales.y.title && scales.y.title.display)) {
+      scales.y.title = { display: true, text: 'SAR', color: '#64748b', font: { family: PDF_FONT, size: 12, weight: '600' } };
+    }
+    datasets.forEach(ds => {
+      if (arc) {
+        ds._pdfColor = (Array.isArray(ds.backgroundColor) ? ds.backgroundColor : [ds.backgroundColor]).map(c => hexOf(c));
+        ds.borderWidth = 3;
+        ds.borderColor = '#ffffff';
+        return;
+      }
+      if (isLineSet(chart, ds)) {
+        const color = hexOf(ds.borderColor);
+        const dense = (ds.data || []).length > 45;
+        ds._pdfColor = color;
+        ds.borderColor = color;
+        ds.borderWidth = 3;
+        ds.cubicInterpolationMode = 'monotone';
+        ds.borderCapStyle = 'round';
+        ds.borderJoinStyle = 'round';
+        ds.pointRadius = dense ? 0 : 4.5;
+        ds.pointBorderWidth = 2.5;
+        ds.pointBackgroundColor = '#ffffff';
+        ds.pointBorderColor = color;
+        ds.pointStyle = 'circle';
+        if (ds.fill) {
+          const fade = ctx.createLinearGradient(0, 0, 0, height);
+          fade.addColorStop(0, rgbaOf(color, lineCount > 1 ? 0.16 : 0.22));
+          fade.addColorStop(0.78, rgbaOf(color, 0.04));
+          fade.addColorStop(1, rgbaOf(color, 0));
+          ds.backgroundColor = fade;
+        }
+        return;
+      }
+      const fills = Array.isArray(ds.backgroundColor) ? ds.backgroundColor.map(c => hexOf(c)) : hexOf(ds.backgroundColor);
+      ds._pdfColor = fills;
+      ds.pointStyle = 'rectRounded';
+      if (!stacked) {
+        ds.borderRadius = 6;
+        ds.borderSkipped = 'start';
+      }
+      if (pdfKind(chart, ds) === 'loyalty') {
+        const base = Array.isArray(fills) ? fills[0] : fills;
+        const shade = ctx.createLinearGradient(0, height * 0.3, 0, height);
+        shade.addColorStop(0, rgbaOf(base, 0.62));
+        shade.addColorStop(1, rgbaOf(base, 0.2));
+        ds.backgroundColor = shade;
+        ds.maxBarThickness = 22;
+      } else if (!stacked) {
+        ds.maxBarThickness = horizontal ? 18 : Math.min(ds.maxBarThickness || 44, 44);
+      }
+    });
+  }
+
+  function roundBadge(ctx, x, y, w, h, r){
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function badgeBox(ctx, text, cx, cy){
+    const w = Math.ceil(ctx.measureText(text).width) + 14;
+    const h = 19;
+    return { x: cx - w / 2, y: cy - h / 2, w: w, h: h };
+  }
+
+  function overlaps(a, b, gap){
+    return a.x < b.x + b.w + gap && a.x + a.w + gap > b.x && a.y < b.y + b.h + gap && a.y + a.h + gap > b.y;
+  }
+
+  function keepInside(box, bounds){
+    box.x = Math.min(Math.max(box.x, bounds.left), bounds.right - box.w);
+    return box;
+  }
+
+  function freeBox(ctx, text, x, y, dir, lift, placed, bounds, flip, loose){
+    const tries = [];
+    for (let k = 0; k < 9; k++) tries.push(y + dir * (lift + k * 11));
+    if (flip) for (let k = 0; k < 5; k++) tries.push(y - dir * (20 + k * 14));
+    let first = null;
+    for (const cy of tries) {
+      const box = keepInside(badgeBox(ctx, text, x, cy), bounds);
+      if (box.y < bounds.top || box.y + box.h > bounds.bottom) continue;
+      if (!first) first = box;
+      if (!placed.some(other => overlaps(box, other, 2))) return box;
+    }
+    return loose ? first : null;
+  }
+
+  const lightness = color => { const [r, g, b] = rgbOf(color); return (0.299 * r + 0.587 * g + 0.114 * b) / 255; };
+  const outlineStyle = color => lightness(color) > 0.72
+    ? { bg: '#ffffff', border: '#cbd5e1', ink: '#475569' }
+    : { bg: '#ffffff', border: deepen(color, 0.1), ink: deepen(color, 0.22) };
+  const filledStyle = color => ({ bg: deepen(color, 0.08), border: deepen(color, 0.08), ink: '#ffffff' });
+  const amberStyle = () => ({ bg: '#d97706', border: '#d97706', ink: '#ffffff' });
+  const mutedStyle = () => ({ bg: '#ffffff', border: '#cbd5e1', ink: '#94a3b8' });
+  const loyaltyStyle = () => ({ bg: '#4f479e', border: '#ffffff', ink: '#ffffff', line: 1 });
+
+  function paintPill(ctx, box, text, style){
+    ctx.save();
+    ctx.shadowColor = 'rgba(15,23,42,0.14)';
+    ctx.shadowBlur = 3;
+    ctx.shadowOffsetY = 1;
+    roundBadge(ctx, box.x, box.y, box.w, box.h, 5);
+    ctx.fillStyle = style.bg;
+    ctx.fill();
+    ctx.shadowColor = 'transparent';
+    ctx.lineWidth = style.line || 1.3;
+    ctx.strokeStyle = style.border;
+    ctx.stroke();
+    ctx.font = BADGE_FONT;
+    ctx.fillStyle = style.ink;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, box.x + box.w / 2, box.y + box.h / 2 + 0.5);
+    ctx.restore();
+  }
+
+  function paintConnector(ctx, from, box, color){
+    const cx = box.x + box.w / 2;
+    const toY = box.y + box.h / 2 > from.y ? box.y : box.y + box.h;
+    if (Math.hypot(cx - from.x, toY - from.y) < 5) return;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 0.9;
+    ctx.setLineDash([1.5, 1.5]);
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(cx, toY);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function colorAt(ds, index){
+    const color = ds._pdfColor;
+    if (Array.isArray(color)) return color[index] || color[0] || '#1e22aa';
+    return color || hexOf(ds.borderColor || ds.backgroundColor);
+  }
+
+  function drawPdfLabels(chart){
+    const area = chart.chartArea;
+    if (!area) return;
+    const type = chart.config.type;
+    if (type === 'doughnut' || type === 'pie') { drawArcLabels(chart); return; }
+    const ctx = chart.ctx;
+    const horizontal = chart.options.indexAxis === 'y';
+    const scales = chart.options.scales || {};
+    const stacked = !!((scales.x && scales.x.stacked) || (scales.y && scales.y.stacked));
+    const legend = chart.options.plugins && chart.options.plugins.legend;
+    const legendTop = !!(legend && legend.display !== false && legend.position !== 'bottom' && chart.legend && chart.legend.legendItems && chart.legend.legendItems.length);
+    const bounds = { left: area.left - 4, right: area.right + 16, top: area.top - (legendTop ? 6 : 26), bottom: area.bottom - 3 };
+    const placed = [];
+    const labels = [];
+    ctx.save();
+    ctx.font = BADGE_FONT;
+
+    chart.data.datasets.forEach((ds, di) => {
+      const meta = chart.getDatasetMeta(di);
+      if (!meta || meta.hidden || meta.type !== 'line') return;
+      meta.data.forEach(el => {
+        if (el && !el.skip && Number.isFinite(el.x) && Number.isFinite(el.y)) placed.push({ x: el.x - 5, y: el.y - 5, w: 10, h: 10 });
+      });
+    });
+
+    chart.data.datasets.forEach((ds, di) => {
+      const meta = chart.getDatasetMeta(di);
+      if (!meta || meta.hidden || meta.type !== 'bar') return;
+      const kind = pdfKind(chart, ds);
+      const values = ds.data || [];
+      const numbers = values.map(v => (v == null || v === '') ? NaN : Number(v)).filter(Number.isFinite);
+      const peak = numbers.length > 1 ? Math.max(...numbers) : null;
+      const peakIndex = peak == null ? -1 : values.findIndex(v => Number(v) === peak);
+      meta.data.forEach((el, i) => {
+        const raw = values[i];
+        const n = raw == null || raw === '' ? NaN : Number(raw);
+        if (!el || !Number.isFinite(n) || n === 0) return;
+        const text = pdfValue(n, kind, 'bar');
+        const color = colorAt(ds, i);
+        if (stacked) {
+          const size = horizontal ? Math.abs(el.x - el.base) : Math.abs(el.base - el.y);
+          if (size < 18) return;
+          labels.push({ text: text, plain: true, x: horizontal ? (el.x + el.base) / 2 : el.x, y: horizontal ? el.y : (el.y + el.base) / 2 });
+          return;
+        }
+        if (kind === 'loyalty') {
+          const top = Math.min(el.y, el.base);
+          const tall = Math.abs(el.base - el.y) >= 34;
+          const box = keepInside(badgeBox(ctx, text, el.x, tall ? top + 14 : top - 13), bounds);
+          placed.push(box);
+          labels.push({ text: text, box: box, style: loyaltyStyle() });
+          return;
+        }
+        let style = i === peakIndex ? filledStyle(color) : outlineStyle(color);
+        if (horizontal) {
+          const end = Math.max(el.x, el.base);
+          let box = badgeBox(ctx, text, 0, el.y);
+          box.x = end + 8;
+          if (box.x + box.w > bounds.right) {
+            box.x = end - 8 - box.w;
+            style = { bg: deepen(color, 0.15), border: '#ffffff', ink: '#ffffff', line: 1 };
+          }
+          placed.push(box);
+          labels.push({ text: text, box: box, style: style });
+          return;
+        }
+        const top = Math.min(el.y, el.base);
+        const box = freeBox(ctx, text, el.x, top, -1, 14, placed, bounds, false, false);
+        if (!box) return;
+        placed.push(box);
+        labels.push({ text: text, box: box, style: style });
+      });
+    });
+
+    const lineSets = chart.data.datasets
+      .map((ds, di) => ({ ds: ds, meta: chart.getDatasetMeta(di) }))
+      .filter(item => item.meta && !item.meta.hidden && item.meta.type === 'line');
+    const meanY = item => {
+      const ys = item.meta.data.filter(el => el && !el.skip).map(el => el.y);
+      return ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : 0;
+    };
+    const lower = lineSets.length === 2 ? (meanY(lineSets[0]) > meanY(lineSets[1]) ? 0 : 1) : -1;
+    lineSets.forEach((item, li) => {
+      const ds = item.ds;
+      const points = item.meta.data;
+      const kind = pdfKind(chart, ds);
+      const color = colorAt(ds, 0);
+      const values = ds.data || [];
+      const real = [];
+      values.forEach((raw, i) => {
+        if (raw == null || raw === '') return;
+        const v = Number(raw);
+        const el = points[i];
+        if (!Number.isFinite(v) || !el || el.skip) return;
+        real.push({ v: v, i: i, el: el });
+      });
+      if (!real.length) return;
+      const peak = Math.max(...real.map(p => p.v));
+      const nonZero = real.filter(p => p.v !== 0).map(p => p.v);
+      const floor = nonZero.length ? Math.min(...nonZero) : null;
+      const peakIndex = (real.find(p => p.v === peak) || {}).i;
+      const floorIndex = floor == null ? -1 : (real.find(p => p.v === floor) || {}).i;
+      const sparse = real.length > 35 || lineSets.length > 2;
+      let pick = real;
+      if (sparse) {
+        const keep = new Set([real[real.length - 1].i]);
+        const peakAt = real.find(p => p.v === peak);
+        if (peakAt) keep.add(peakAt.i);
+        if (lineSets.length <= 2 && floor != null) {
+          const lowAt = real.find(p => p.v === floor);
+          if (lowAt) keep.add(lowAt.i);
+        }
+        pick = real.filter(p => keep.has(p.i));
+      }
+      const dir = li === lower ? 1 : -1;
+      const spacing = (area.right - area.left) / Math.max(points.length - 1, 1);
+      const widest = Math.max(...pick.map(p => ctx.measureText(pdfValue(p.v, kind, 'line')).width + 14));
+      const levels = sparse || spacing >= widest + 6 ? 1 : (spacing * 2 >= widest + 6 ? 2 : 3);
+      pick.forEach(p => {
+        const text = pdfValue(p.v, kind, 'line');
+        let style = outlineStyle(color);
+        if (kind === 'percent' && p.v === 0) style = mutedStyle();
+        else if (p.i === peakIndex && real.length > 1) style = filledStyle(color);
+        else if (kind === 'percent' && p.i === floorIndex && floor !== peak && real.length > 2) style = amberStyle();
+        const lift = 20 + (p.i % levels) * 18;
+        const box = freeBox(ctx, text, p.el.x, p.el.y, dir, lift, placed, bounds, lineSets.length !== 2, true)
+          || keepInside(badgeBox(ctx, text, p.el.x, p.el.y + dir * lift), bounds);
+        placed.push(box);
+        labels.push({ text: text, box: box, style: style, from: { x: p.el.x, y: p.el.y + (box.y > p.el.y ? 6 : -6) } });
+      });
+    });
+
+    labels.forEach(label => { if (label.from) paintConnector(ctx, label.from, label.box, label.style.border); });
+    labels.forEach(label => {
+      if (label.plain) {
+        ctx.save();
+        ctx.font = BADGE_FONT;
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label.text, label.x, label.y);
+        ctx.restore();
+        return;
+      }
+      paintPill(ctx, label.box, label.text, label.style);
+    });
+    ctx.restore();
+  }
+
+  function drawArcLabels(chart){
+    const ds = chart.data.datasets[0];
+    const meta = chart.getDatasetMeta(0);
+    if (!ds || !meta || !meta.data) return;
+    const values = (ds.data || []).map(v => Number(v) || 0);
+    const total = values.reduce((a, b) => a + b, 0);
+    if (!total) return;
+    const ctx = chart.ctx;
+    const kind = pdfKind(chart, ds);
+    ctx.save();
+    ctx.font = BADGE_FONT;
+    meta.data.forEach((el, i) => {
+      if (!el || !values[i] || !chart.getDataVisibility(i)) return;
+      const share = values[i] / total;
+      if (share < 0.05) return;
+      const angle = (el.startAngle + el.endAngle) / 2;
+      const radius = el.innerRadius + (el.outerRadius - el.innerRadius) / 2;
+      const text = Math.round(share * 100) + '%';
+      const box = badgeBox(ctx, text, el.x + Math.cos(angle) * radius, el.y + Math.sin(angle) * radius);
+      paintPill(ctx, box, text, outlineStyle(colorAt(ds, i)));
+    });
+    const first = meta.data[0];
+    if (first && first.innerRadius > 34) {
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#64748b';
+      ctx.font = '600 12px ' + PDF_FONT;
+      ctx.fillText('Total', first.x, first.y - 11);
+      ctx.fillStyle = '#1c2b39';
+      ctx.font = '700 17px ' + PDF_FONT;
+      ctx.fillText(pdfValue(total, kind, 'total'), first.x, first.y + 9);
+    }
+    ctx.restore();
   }
 
   function chartImage(draw, width, height){
+    paintChartsWhite();
     const canvas = document.createElement('canvas');
-    canvas.width = width || 900;
-    canvas.height = height || 280;
+    canvas.width = width || PDF_CHART_W;
+    canvas.height = height || PDF_CHART_H;
     const previous = Chart.defaults.devicePixelRatio;
-    Chart.defaults.devicePixelRatio = 1;
+    Chart.defaults.devicePixelRatio = PDF_CHART_SCALE;
+    pdfChartPass = true;
     let chart = null;
     try {
       chart = draw(canvas);
-      return canvas.toDataURL('image/jpeg', 0.82);
+      return canvas.toDataURL('image/png');
     } finally {
+      pdfChartPass = false;
       if (chart) chart.destroy();
       Chart.defaults.devicePixelRatio = previous;
     }
@@ -1849,73 +2590,33 @@
     const index = await apiFetch('/api/reports/index');
     if (!index) return null;
     const series = occupancySeries(index, startIso, endIso);
-    const canvas = document.createElement('canvas');
-    canvas.width = 900;
-    canvas.height = 280;
-    const options = comboOptions();
-    options.animation = false;
-    options.responsive = false;
-    const previous = Chart.defaults.devicePixelRatio;
-    Chart.defaults.devicePixelRatio = 1;
-    const chart = new Chart(canvas, {
-      type: 'bar',
-      data: comboOccupancy(canvas, series.labels, series.values, series.loyalty),
-      options: options
+    return chartImage(canvas => {
+      const options = comboOptions();
+      options.animation = false;
+      options.responsive = false;
+      return new Chart(canvas, {
+        type: 'bar',
+        data: comboOccupancy(canvas, series.labels, series.values, series.loyalty),
+        options: options
+      });
     });
-    const url = canvas.toDataURL('image/jpeg', 0.82);
-    chart.destroy();
-    Chart.defaults.devicePixelRatio = previous;
-    return url;
-  }
-
-  function drawDutyStatCards(doc, W, y, cards) {
-    const gap = 8;
-    const cols = 4;
-    const cw = (W - 80 - gap * (cols - 1)) / cols;
-    const ch = 48;
-    const rows = Math.ceil(cards.length / cols);
-    if (y + rows * (ch + gap) > 780) { doc.addPage(); y = 45; }
-    cards.forEach((card, i) => {
-      const x = 40 + (i % cols) * (cw + gap);
-      const top = y + Math.floor(i / cols) * (ch + gap);
-      doc.setFillColor(255, 255, 255);
-      doc.setDrawColor(...NOVOTEL.line);
-      doc.setLineWidth(0.6);
-      doc.roundedRect(x, top, cw, ch, 3, 3, 'FD');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(13);
-      doc.setTextColor(...NOVOTEL.navy);
-      doc.text(String(card.v), x + cw / 2, top + 20, { align: 'center' });
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.5);
-      doc.setTextColor(...NOVOTEL.inkSoft);
-      doc.text(doc.splitTextToSize(card.l, cw - 10).slice(0, 2), x + cw / 2, top + 33, { align: 'center' });
-    });
-    return y + rows * (ch + gap) + 10;
   }
 
   function placePdfChart(doc, W, y, title, image) {
     if (!image) return y;
-    if (y + 190 > 780) { doc.addPage(); y = 45; }
+    const h = pdfChartHeight(W - 80);
+    if (y + h + 46 > 780) { doc.addPage(); y = 45; }
     y = pdfSectionHeading(doc, W, y, title);
     y += 8;
-    doc.addImage(image, 'JPEG', 40, y, W - 80, 140);
-    return y + 152;
+    doc.addImage(image, 'PNG', 40, y, W - 80, h);
+    return y + h + 12;
   }
 
   async function appendDutyArchiveSummary(doc, W, y, date) {
     const data = await apiFetch('/api/reports/analysis?date=' + encodeURIComponent(date) + '&range=month');
     if (!data || !data.startDate) return y;
-    y = drawDutyStatCards(doc, W, y, [
-      { v: String(data.days), l: 'Days Analyzed' },
-      { v: String(data.totalFail), l: 'Checklist Failures (X)' },
-      { v: String((data.complaintsList || []).length), l: 'Guest Complaints' },
-      { v: String(data.totalIncidents), l: 'Incidents Logged' },
-      { v: String(data.totalNotesOpen), l: 'Action Items Open' },
-      { v: String(data.courtesyNeg), l: 'Negative Courtesy Calls' },
-      { v: String(data.avgGss), l: 'Avg. TrustYou GSS' },
-      { v: String(data.reviewsSum || '—'), l: 'Total Reviews Analyzed' }
-    ]);
+    const index = await apiFetch('/api/reports/index');
+    y = pdfKpiBoard(doc, W, y, dutyTiers(data, index || []));
     y = pdfSectionHeading(doc, W, y, 'Action Items');
     const items = data.actionItems || [];
     if (!items.length) {
@@ -2204,34 +2905,17 @@
     doc.setTextColor(...NOVOTEL.inkSoft);
     doc.text(`Period: ${d.startDate} to ${d.endDate}    ·    Days Analyzed: ${d.days}`, 40, y); y += 14;
 
-    // Stat cards (4 x 2 grid)
-    const cards = [
-      {v: String(d.days), l: 'Days Analyzed', c: NOVOTEL.navy},
-      {v: String(d.totalFail), l: 'Checklist Failures', c: NOVOTEL.danger},
-      {v: String(d.complaintsList.length), l: 'Guest Complaints', c: NOVOTEL.danger},
-      {v: String(d.totalIncidents), l: 'Incidents', c: NOVOTEL.brass},
-      {v: String(d.totalNotesOpen), l: 'Action Items Open', c: NOVOTEL.navy2},
-      {v: String(d.courtesyNeg), l: 'Neg. Courtesy Calls', c: NOVOTEL.danger},
-      {v: String(d.avgGss), l: 'Avg TrustYou GSS', c: NOVOTEL.ok},
-      {v: String(d.reviewsSum || '0'), l: 'Total Reviews', c: NOVOTEL.navy}
-    ];
-    const cw = 121, ch = 50, cgap = 10;
-    let gx = 40, gy = y;
-    cards.forEach((c, i) => {
-      if (i > 0 && i % 4 === 0) { gx = 40; gy += ch + cgap; }
-      drawStatBox(doc, gx, gy, cw, ch, c.v, c.l, c.c);
-      gx += cw + cgap;
-    });
-    y = gy + ch + 16;
+    y = pdfKpiBoard(doc, W, y + 4, dutyTiers(d, state.dutyIndex || []));
 
     // Charts
     try {
       const occImg = await occupancyChartImage(d.startDate, d.endDate);
       if (occImg) {
-        if (y + 180 > 780) { doc.addPage(); y = 45; }
+        const h = pdfChartHeight(W - 80);
+        if (y + h + 30 > 780) { doc.addPage(); y = 45; }
         y = pdfSectionHeading(doc, W, y, 'Occupancy %');
-        doc.addImage(occImg, 'JPEG', 40, y, W - 80, 150);
-        y += 158;
+        doc.addImage(occImg, 'PNG', 40, y + 4, W - 80, h);
+        y += h + 12;
       }
       const gssImg = chartImage(canvas => {
         const options = chartFrame();
@@ -2242,10 +2926,11 @@
         const labels = occupancySeries([], d.startDate, d.endDate).labels;
         return new Chart(canvas, { type: 'line', data: { labels: labels, datasets: [series] }, options: options });
       });
-      if (y + 180 > 780) { doc.addPage(); y = 45; }
+      const gssH = pdfChartHeight(W - 80);
+      if (y + gssH + 30 > 780) { doc.addPage(); y = 45; }
       y = pdfSectionHeading(doc, W, y, 'TrustYou GSS');
-      doc.addImage(gssImg, 'JPEG', 40, y, W - 80, 150);
-      y += 158;
+      doc.addImage(gssImg, 'PNG', 40, y + 4, W - 80, gssH);
+      y += gssH + 12;
     } catch (e) {}
     const canvas = document.getElementById('sectionChart');
     if (d.topSections) {
@@ -2264,10 +2949,11 @@
             options: options
           });
         });
-        if (y + 170 > 780) { doc.addPage(); y = 45; }
+        const failH = pdfChartHeight(W - 80);
+        if (y + failH + 30 > 780) { doc.addPage(); y = 45; }
         y = pdfSectionHeading(doc, W, y, 'Inspection Failures by Area');
-        doc.addImage(failImg, 'JPEG', 40, y, W - 80, 150);
-        y += 158;
+        doc.addImage(failImg, 'PNG', 40, y + 4, W - 80, failH);
+        y += failH + 12;
       } catch (e) {}
     } else if (canvas) {
       try {
@@ -2423,6 +3109,22 @@
 
     if (state.section === 'duty' && state.report) {
     document.querySelectorAll('[data-gf]').forEach(inp => {
+      if (inp.dataset.gf === 'occupancy') {
+        inp.oninput = () => {
+          state.report.occupancy = inp.value;
+          inp.style.color = occupancyCss(inp.value);
+          queueSave();
+        };
+        inp.onchange = () => {
+          const shown = withPercent(inp.value);
+          if (!shown) return;
+          inp.value = shown;
+          state.report.occupancy = shown;
+          inp.style.color = occupancyCss(shown);
+          queueSave();
+        };
+        return;
+      }
       inp.oninput = () => { state.report[inp.dataset.gf] = inp.value; queueSave(); };
     });
 
@@ -3003,6 +3705,13 @@
 
   window.canWrite = canWrite;
   window.occupancyColor = occupancyColor;
+  window.kpiBoard = kpiBoard;
+  window.kpiNumber = kpiNumber;
+  window.kpiTones = KPI_TONES;
+  window.gssStatus = gssStatus;
+  window.occupancyCard = occupancyCard;
+  window.withPercent = withPercent;
+  window.occupancyCss = occupancyCss;
   window.actionItemsHtml = actionItemsHtml;
   window.renderNightInspection = renderNightInspection;
   window.normalizeNightInspection = normalizeNightInspection;
@@ -3016,11 +3725,11 @@
   window.renderApp = render;
   window.groupByMonth = groupByMonth;
   window.exportDutyPdf = exportPdf;
-  window.NovotelPdf = { pdfHeader, pdfTable, addPdfFooter, getLogoDataUrl };
+  window.NovotelPdf = { pdfHeader, pdfTable, addPdfFooter, getLogoDataUrl, pdfKpiBoard };
   window.occupancySeries = occupancySeries;
   window.periodBar = periodBar;
   window.periodQuery = periodQuery;
-  window.NovotelCharts = { chartFrame, areaSeries, chartFill, mountChart, chartImage, comboOccupancy, comboOptions };
+  window.NovotelCharts = { chartFrame, areaSeries, chartFill, mountChart, chartImage, comboOccupancy, comboOptions, pdfChartHeight };
   window.drawOccupancyChart = drawOccupancyChart;
   window.drawTrend = drawTrend;
 

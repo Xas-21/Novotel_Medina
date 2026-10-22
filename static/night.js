@@ -1,6 +1,6 @@
 (function(){
   const FC = ['totalOcc', 'arrRooms', 'depRooms', 'occPct', 'compRooms', 'averageRate'];
-  const FC_LABELS = ['Total occ', 'Arr rooms', 'Dep rooms', 'Occ %', 'Comp rooms', 'Average rate'];
+  const FC_LABELS = ['RM OCC', 'Arr rooms', 'Dep rooms', 'Occ %', 'Comp rooms', 'Average rate'];
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
@@ -21,11 +21,28 @@
     return sign * Math.floor(Math.abs(n) + 0.5);
   }
 
+  function moneyNumber(value){
+    if (value == null || value === '') return null;
+    const n = Number(String(value).replace(/,/g, '').replace(/sar/ig, '').trim());
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function moneyPlain(value){
+    const n = moneyNumber(value);
+    if (n == null) return '';
+    return n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  }
+
+  function formatEnteredMoney(value){
+    const plain = moneyPlain(value);
+    return plain === '' ? '' : plain + ' SAR';
+  }
+
   function formatMoney(value){
     if (value == null || value === '') return '';
     const rounded = halfUp(value);
     if (rounded == null) return '';
-    return rounded.toLocaleString('en-US');
+    return rounded.toLocaleString('en-US') + ' SAR';
   }
 
   function formatPercent(ratio){
@@ -251,13 +268,13 @@
       ['Day', calc('day', dayNumber(d.date)), ''],
       ['Rooms occupied', field('roomsOccupied', d.roomsOccupied, dis), calc('mtd-roomsOccupied', formatCount(m.roomsOccupied))],
       ['Occupancy', calc('occupancy', formatPercent(c.occupancy)), calc('mtd-occupancy', formatPercent(m.occupancy))],
-      ['Rooms revenue', field('roomsRevenue', d.roomsRevenue, dis), calc('mtd-roomsRevenue', formatMoney(m.roomsRevenue))],
+      ['Rooms revenue', moneyField('roomsRevenue', d.roomsRevenue, dis), calc('mtd-roomsRevenue', formatMoney(m.roomsRevenue))],
       ['ADR', calc('adr', formatMoney(c.adr)), calc('mtd-adr', formatMoney(m.adr))],
       ['RevPAR', calc('revpar', formatMoney(c.revpar)), calc('mtd-revpar', formatMoney(m.revpar))],
-      ['F&amp;B', field('fbRevenue', d.fbRevenue, dis), calc('mtd-fbRevenue', formatMoney(m.fbRevenue))],
-      ['M&amp;E', field('meRevenue', d.meRevenue, dis), calc('mtd-meRevenue', formatMoney(m.meRevenue))],
-      ['OOD', field('oodRevenue', d.oodRevenue, dis), calc('mtd-oodRevenue', formatMoney(m.oodRevenue))],
-      ['Other', field('otherRevenue', d.otherRevenue, dis), calc('mtd-otherRevenue', formatMoney(m.otherRevenue))],
+      ['F&amp;B', moneyField('fbRevenue', d.fbRevenue, dis), calc('mtd-fbRevenue', formatMoney(m.fbRevenue))],
+      ['M&amp;E', moneyField('meRevenue', d.meRevenue, dis), calc('mtd-meRevenue', formatMoney(m.meRevenue))],
+      ['OOD', moneyField('oodRevenue', d.oodRevenue, dis), calc('mtd-oodRevenue', formatMoney(m.oodRevenue))],
+      ['Other', moneyField('otherRevenue', d.otherRevenue, dis), calc('mtd-otherRevenue', formatMoney(m.otherRevenue))],
       ['Grand total', calc('grand', formatMoney(c.grandTotal)), calc('mtd-grand', formatMoney(m.grandTotal))]
     ];
     return `
@@ -352,8 +369,10 @@
                   <tr>
                     <td class="night-date">${escapeHtml(weekday(day.date))} ${escapeHtml(day.date)}</td>
                     ${FC.map(key => key === 'occPct'
-                      ? `<td><span class="night-calc" data-fc="occPct" data-i="${i}">${escapeHtml(forecastOcc(day.totalOcc))}</span></td>`
-                      : `<td><input data-fc="${key}" data-i="${i}" inputmode="decimal" autocomplete="off" value="${escapeHtml(day[key])}" ${dis}></td>`).join('')}
+                      ? `<td><span class="night-calc" data-fc="occPct" data-i="${i}" style="color:${window.occupancyCss ? window.occupancyCss(forecastOcc(day.totalOcc)) : ''}">${escapeHtml(window.withPercent ? window.withPercent(forecastOcc(day.totalOcc)) : forecastOcc(day.totalOcc))}</span></td>`
+                      : `<td>${key === 'averageRate'
+                        ? moneyField(null, day[key], dis, `data-fc="averageRate" data-i="${i}"`)
+                        : `<input data-fc="${key}" data-i="${i}" inputmode="decimal" autocomplete="off" value="${escapeHtml(day[key])}" ${dis}>`}</td>`).join('')}
                   </tr>`).join('')}
               </tbody>
             </table>
@@ -378,8 +397,15 @@
     return `<input data-field="${name}" inputmode="decimal" autocomplete="off" value="${escapeHtml(value)}" ${dis}>`;
   }
 
+  function moneyField(name, value, dis, extra){
+    const attrs = extra || `data-field="${name}" data-money="1"`;
+    return `<span class="money-entry"><input ${attrs} inputmode="decimal" autocomplete="off" value="${escapeHtml(moneyPlain(value))}" ${dis}><span class="money-tag">SAR</span></span>`;
+  }
+
   function calc(name, text){
-    return `<span class="night-calc" data-calc="${name}">${escapeHtml(text)}</span>`;
+    const colored = name === 'occupancy' || name === 'mtd-occupancy';
+    const style = colored && window.occupancyCss ? ` style="color:${window.occupancyCss(text)}"` : '';
+    return `<span class="night-calc" data-calc="${name}"${style}>${escapeHtml(text)}</span>`;
   }
 
   function labeled(label, control){
@@ -403,9 +429,17 @@
       return;
     }
     if (t.matches('input, textarea, select')) {
+      if (e.type === 'change' && (t.dataset.money || t.dataset.fc === 'averageRate')) {
+        const plain = moneyPlain(t.value);
+        if (String(t.value).trim() !== '' && plain !== '') t.value = plain;
+      }
       if (t.dataset.fc === 'totalOcc') {
         const span = t.closest('tr') && t.closest('tr').querySelector('[data-fc="occPct"]');
-        if (span) span.textContent = forecastOcc(t.value);
+        if (span) {
+          const pct = forecastOcc(t.value);
+          span.textContent = window.withPercent ? window.withPercent(pct) : pct;
+          span.style.color = window.occupancyCss ? window.occupancyCss(pct) : '';
+        }
       }
       queueNightSave();
     }
@@ -709,7 +743,12 @@
       segments: draft.segments.map(s => ({code: s.code, rooms: num(s.rooms), adr: num(s.adr)})),
       forecast: draft.forecast.map(day => {
         const row = {date: day.date};
-        FC.forEach(key => { row[key] = day[key]; });
+        FC.forEach(key => {
+          if (key === 'averageRate') {
+            const n = moneyNumber(day[key]);
+            row[key] = n == null ? '' : String(n);
+          } else row[key] = day[key];
+        });
         return row;
       }),
       groups: draft.groups.map(g => ({
@@ -855,7 +894,11 @@
 
   function setCalc(name, text){
     const el = document.querySelector(`[data-calc="${name}"]`);
-    if (el) el.textContent = text;
+    if (!el) return;
+    el.textContent = text;
+    if (name === 'occupancy' || name === 'mtd-occupancy') {
+      el.style.color = window.occupancyCss ? window.occupancyCss(text) : '';
+    }
   }
 
   function showNote(text){
@@ -912,7 +955,7 @@
             <div>
               <div class="dmr-archive-date">${escapeHtml(fmtDate(entry.date))}</div>
               <span class="dmr-badge ${entry.status === 'submitted' ? 'dmr-badge-submitted' : 'dmr-badge-draft'}">${entry.status === 'submitted' ? 'Submitted' : 'Draft'}</span>
-              ${entry.occupancy != null ? `<span style="font-size:12px;color:var(--ink-soft);margin-left:8px;">Occ: ${escapeHtml(entry.occupancy)}%</span>` : ''}
+              ${entry.occupancy != null ? `<span style="font-size:12px;margin-left:8px;font-weight:700;color:${window.occupancyCss ? window.occupancyCss(entry.occupancy) : ''}">Occ: ${escapeHtml(window.withPercent ? window.withPercent(entry.occupancy) : entry.occupancy + '%')}</span>` : ''}
               ${entry.submittedBy ? `<div class="dmr-prepared-by">Prepared by: ${escapeHtml(entry.submittedBy)}</div>` : ''}
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -993,6 +1036,7 @@
     const revenue = data.revenue || {};
     const charts = window.NovotelCharts;
     body.innerHTML = `
+      ${window.kpiBoard ? window.kpiBoard(nightTiers(data)) : ''}
       <div class="dmr-card dmr-chart-card"><h3>Occupancy %</h3><div class="chart-box"><canvas id="nightOcc"></canvas></div></div>
       <div class="dmr-card dmr-chart-card"><h3>ADR and RevPAR</h3><div class="chart-box"><canvas id="nightRates"></canvas></div></div>
       <div class="dmr-card dmr-chart-card"><h3>Revenue by Departments</h3><div class="chart-box"><canvas id="nightRevenue"></canvas></div></div>
@@ -1083,14 +1127,15 @@
   }
 
   function pdfChart(doc, W, y, title, image){
-    if (y + 180 > 760) { doc.addPage(); y = 48; }
+    const h = window.NovotelCharts.pdfChartHeight(W - 80);
+    if (y + h + 24 > 770) { doc.addPage(); y = 48; }
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(28, 43, 57);
     doc.text(title, 40, y);
     y += 8;
-    doc.addImage(image, 'JPEG', 40, y, W - 80, 140);
-    return y + 152;
+    doc.addImage(image, 'PNG', 40, y, W - 80, h);
+    return y + h + 14;
   }
 
   async function appendNightAnalysisCharts(doc, W, y, data){
@@ -1164,7 +1209,8 @@
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.text((state.periodFrom || '') + '  to  ' + (state.periodTo || data.date || ''), 40, y);
-    y += 16;
+    y += 12;
+    y = pdf.pdfKpiBoard(doc, W, y, nightTiers(data));
     y = await appendNightAnalysisCharts(doc, W, y, data);
     pdf.addPdfFooter(doc, W, 'Novotel — Night Analysis');
     doc.save('novotel-night-analysis-' + (data.date || 'report') + '.pdf');
@@ -1197,13 +1243,13 @@
       ['Day', dayNumber(data.date), ''],
       ['Rooms occupied', asEntered(data.roomsOccupied), formatCount(m.roomsOccupied)],
       ['Occupancy', formatPercent(c.occupancy), formatPercent(m.occupancy)],
-      ['Rooms revenue', asEntered(data.roomsRevenue), formatMoney(m.roomsRevenue)],
+      ['Rooms revenue', formatEnteredMoney(data.roomsRevenue), formatMoney(m.roomsRevenue)],
       ['ADR', formatMoney(c.adr), formatMoney(m.adr)],
       ['RevPAR', formatMoney(c.revpar), formatMoney(m.revpar)],
-      ['F&B', asEntered(data.fbRevenue), formatMoney(m.fbRevenue)],
-      ['M&E', asEntered(data.meRevenue), formatMoney(m.meRevenue)],
-      ['OOD', asEntered(data.oodRevenue), formatMoney(m.oodRevenue)],
-      ['Other', asEntered(data.otherRevenue), formatMoney(m.otherRevenue)],
+      ['F&B', formatEnteredMoney(data.fbRevenue), formatMoney(m.fbRevenue)],
+      ['M&E', formatEnteredMoney(data.meRevenue), formatMoney(m.meRevenue)],
+      ['OOD', formatEnteredMoney(data.oodRevenue), formatMoney(m.oodRevenue)],
+      ['Other', formatEnteredMoney(data.otherRevenue), formatMoney(m.otherRevenue)],
       ['Grand total', formatMoney(c.grandTotal), formatMoney(m.grandTotal)]
     ];
     y = pdf.pdfTable(doc, W, y, [
@@ -1229,22 +1275,29 @@
       {key:'ROOMS', label:'ROOMS', w:200}
     ], segmentRows);
     y += 8;
+    if (y + 36 > 780) { doc.addPage(); y = 45; }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(28, 43, 57);
+    doc.text('Forecast', 40, y + 12);
+    y += 20;
     y = pdf.pdfTable(doc, W, y, [
-      {key:'DATE', label:'DATE', w:78},
-      {key:'OCC', label:'OCC', w:48},
+      {key:'DATE', label:'DATE', w:70},
+      {key:'OCC', label:'RM OCC', w:56},
       {key:'ARR', label:'ARR', w:48},
       {key:'DEP', label:'DEP', w:48},
       {key:'PCT', label:'OCC %', w:52},
-      {key:'COMP', label:'COMP ROOMS', w:78},
-      {key:'RATE', label:'AVG RATE', w:78}
+      {key:'COMP', label:'COMP ROOMS', w:70},
+      {key:'RATE', label:'AVG RATE', w:86}
     ], (data.forecast || []).map(day => ({
       DATE: day.date,
       OCC: String(day.totalOcc ?? ''),
       ARR: String(day.arrRooms ?? ''),
       DEP: String(day.depRooms ?? ''),
-      PCT: String(day.occPct ?? ''),
+      PCT: window.withPercent ? window.withPercent(day.occPct) : (day.occPct == null || day.occPct === '' ? '' : day.occPct + '%'),
+      PCT_color: window.occupancyColor ? window.occupancyColor(day.occPct) : undefined,
       COMP: String(day.compRooms ?? ''),
-      RATE: String(day.averageRate ?? '')
+      RATE: formatEnteredMoney(day.averageRate)
     })));
     y += 8;
     if ((data.groups || []).length) {
@@ -1354,63 +1407,76 @@
       guestNotSatisfied: guest ? guest.notSatisfied : 0,
       guestDeparture: guest && guest.avgDeparture != null ? guest.avgDeparture : '—',
       guestUrgent: guest ? guest.urgent || 0 : 0,
-      guestVipOcc: guest && guest.avgVipOcc != null ? guest.avgVipOcc + '%' : '—'
+      guestVipOcc: guest && guest.avgVipOcc != null ? guest.avgVipOcc + '%' : '—',
+      guestVipOccValue: guest ? guest.avgVipOcc : null,
+      roomsValue: revenue.rooms || 0,
+      avgAdrValue: avgAdr,
+      roomsSold: night ? night.roomsSold : null,
+      avgOccupancy: night ? night.avgOccupancy : null
     };
   }
 
-  const STAT_TONES = {
-    ok: { bg: [234, 242, 236], fg: [79, 122, 91] },
-    danger: { bg: [251, 234, 231], fg: [177, 75, 63] },
-    warn: { bg: [251, 240, 226], fg: [196, 129, 60] },
-    navy: { bg: [238, 240, 251], fg: [30, 34, 170] },
-    teal: { bg: [231, 247, 244], fg: [15, 118, 110] }
-  };
-
-  function dashboardCards(stats) {
+  function dashboardTiers(stats){
+    const tones = window.kpiTones;
+    const n = window.kpiNumber;
+    const has = value => value != null && value !== '' && value !== '—';
     return [
-      { tone: 'ok', value: stats.dutySubmitted, label: 'Duty reports submitted' },
-      { tone: 'danger', value: stats.dutyMissing, label: 'Duty days not submitted' },
-      { tone: 'warn', value: stats.failures, label: 'Checklist failures' },
-      { tone: 'navy', value: stats.complaints, label: 'Guest complaints' },
-      { tone: 'teal', value: stats.gss, label: 'Avg TrustYou GSS' },
-      { tone: 'teal', value: stats.avgAdr, label: 'Avg ADR' },
-      { tone: 'ok', value: stats.nightFiled, label: 'Night reports submitted' },
-      { tone: 'danger', value: stats.nightMissing, label: 'Nights not submitted' },
-      { tone: 'navy', value: stats.rooms, label: 'Night rooms revenue' },
-      { tone: 'ok', value: stats.guestSubmitted || 0, label: 'Guest Relation submitted' },
-      { tone: 'danger', value: stats.guestMissing || 0, label: 'Guest Relation days not submitted' },
-      { tone: 'warn', value: stats.guestNotSatisfied || 0, label: 'Not satisfied guests' },
-      { tone: 'danger', value: stats.guestUrgent || 0, label: 'Urgent guest actions' },
-      { tone: 'teal', value: stats.guestDeparture == null ? '—' : stats.guestDeparture, label: 'Avg departure score' },
-      { tone: 'navy', value: stats.guestVipOcc || '—', label: 'Avg VIP occ' }
+      { title: 'Revenue, Occupancy, Volume & Guest Satisfaction', kind: 'hero', cards: [
+        { label: 'Night rooms revenue', value: n(stats.roomsValue), unit: 'SAR', tone: 'indigo', badge: 'Primary KPI', note: 'Room revenue in this period' },
+        { label: 'Rooms sold', value: has(stats.roomsSold) ? n(stats.roomsSold) : '—', tone: 'teal', note: 'Occupied room nights in this period' },
+        window.occupancyCard('Avg Occupancy %', stats.avgOccupancy, 'Rooms sold ÷ rooms available, filed nights'),
+        { label: 'Avg ADR', value: has(stats.avgAdrValue) ? n(stats.avgAdrValue) : '—', unit: 'SAR', tone: 'teal', note: 'Average daily room rate' },
+        Object.assign({ label: 'Avg TrustYou GSS', value: stats.gss, tone: 'teal', note: 'Out of 100 guest score index' }, window.gssStatus(stats.gss)),
+        window.occupancyCard('Avg VIP occ', stats.guestVipOccValue, 'VIP arrivals ÷ hotel rooms', Number(stats.guestVipOccValue) > 0 ? { badge: 'Active', badgeColor: tones.indigo } : {})
+      ] },
+      { title: 'Operational Report Submission Compliance', kind: 'pair', cards: [
+        { title: 'Duty Reports Submission', done: stats.dutySubmitted, open: stats.dutyMissing, doneLabel: 'Duty reports submitted', openLabel: 'Duty days not submitted' },
+        { title: 'Night Audit Reports', done: stats.nightFiled, open: stats.nightMissing, doneLabel: 'Night reports submitted', openLabel: 'Nights not submitted' },
+        { title: 'Guest Relation Logs', done: stats.guestSubmitted || 0, open: stats.guestMissing || 0, doneLabel: 'Guest Relation submitted', openLabel: 'Guest Relation days not submitted' }
+      ] },
+      { title: 'Quality Control, Guest Complaints & Survey Status', kind: 'compact', cards: [
+        { label: 'Checklist failures', value: n(stats.failures), tone: 'amber', note: stats.failures ? 'Flagged across daily inspections' : 'No inspection failures' },
+        { label: 'Guest complaints', value: n(stats.complaints), tone: 'indigo', note: 'Logged during this period' },
+        { label: 'Not satisfied guests', value: n(stats.guestNotSatisfied || 0), tone: 'amber', note: stats.guestNotSatisfied ? 'Marked not satisfied by Guest Relation' : 'No dissatisfied guest reports' },
+        { label: 'Urgent guest actions', value: n(stats.guestUrgent || 0), tone: 'crimson', note: stats.guestUrgent ? 'Guest rows marked urgent' : 'No urgent escalations' },
+        { label: 'Avg departure score', value: has(stats.guestDeparture) ? stats.guestDeparture : '—', tone: 'teal', note: has(stats.guestDeparture) ? 'Departure courtesy call score' : 'No departure surveys recorded' }
+      ] }
     ];
   }
 
-  function pdfStatCards(doc, W, y, cards) {
-    const gap = 6;
-    const cols = 3;
-    const cardW = (W - 80 - gap * (cols - 1)) / cols;
-    const cardH = 52;
-    const rows = Math.ceil(cards.length / cols);
-    if (y + rows * (cardH + gap) > 780) { doc.addPage(); y = 48; }
-    cards.forEach((card, index) => {
-      const tone = STAT_TONES[card.tone];
-      const col = index % cols;
-      const row = Math.floor(index / cols);
-      const x = 40 + col * (cardW + gap);
-      const top = y + row * (cardH + gap);
-      doc.setFillColor(tone.bg[0], tone.bg[1], tone.bg[2]);
-      doc.roundedRect(x, top, cardW, cardH, 3, 3, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(14);
-      doc.setTextColor(tone.fg[0], tone.fg[1], tone.fg[2]);
-      doc.text(String(card.value), x + 8, top + 20);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.setTextColor(91, 102, 115);
-      doc.text(doc.splitTextToSize(card.label, cardW - 16).slice(0, 2), x + 8, top + 34);
-    });
-    return y + rows * (cardH + gap) + 6;
+  function nightTiers(data){
+    const tones = window.kpiTones;
+    const n = window.kpiNumber;
+    const revenue = data.revenue || {};
+    const mean = list => {
+      const values = (list || []).filter(v => v != null).map(Number).filter(Number.isFinite);
+      return values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : null;
+    };
+    const occ = data.occupancy || [];
+    let peak = null;
+    occ.forEach((value, i) => { if (value != null && (peak == null || value > peak.value)) peak = { value: value, label: (data.labels || [])[i] }; });
+    const filed = data.filedNights != null ? data.filedNights : occ.filter(v => v != null).length;
+    const money = (label, value, note) => ({ label: label, value: n(value || 0), unit: 'SAR', tone: 'indigo', note: note });
+    return [
+      { title: 'Revenue, Occupancy & Rate Benchmarks', kind: 'hero', cards: [
+        { label: 'Night rooms revenue', value: n(revenue.rooms || 0), unit: 'SAR', tone: 'indigo', badge: 'Primary KPI', note: 'Room revenue in this period' },
+        { label: 'Rooms sold', value: data.roomsSold != null ? n(data.roomsSold) : '—', tone: 'teal', note: 'Occupied room nights in this period' },
+        window.occupancyCard('Avg Occupancy %', data.avgOccupancy, 'Rooms sold ÷ rooms available, filed nights'),
+        { label: 'Avg ADR', value: mean(data.adr) == null ? '—' : n(mean(data.adr)), unit: 'SAR', tone: 'teal', note: 'Average daily room rate' },
+        { label: 'Avg RevPAR', value: mean(data.revpar) == null ? '—' : n(mean(data.revpar)), unit: 'SAR', tone: 'teal', note: 'Average revenue per available room' },
+        { label: 'Grand total revenue', value: n(data.grandTotal || 0), unit: 'SAR', tone: 'indigo', badge: 'All outlets', badgeColor: tones.indigo, note: 'Rooms + F&B + M&E + OOD + Other' }
+      ] },
+      { title: 'Night Audit Submission Compliance', kind: 'pair', cards: [
+        { title: 'Night Audit Reports', done: filed, open: Math.max(0, occ.length - filed), doneLabel: 'Night reports submitted', openLabel: 'Nights not submitted' }
+      ] },
+      { title: 'Revenue Mix & Peak Night', kind: 'compact', cards: [
+        money('F&B revenue', revenue.fb, 'Food and beverage'),
+        money('M&E revenue', revenue.me, 'Meetings and events'),
+        money('OOD revenue', revenue.ood, 'Other operated departments'),
+        money('Other revenue', revenue.other, 'Remaining income'),
+        window.occupancyCard('Peak occupancy', peak ? peak.value : null, peak ? 'Highest night: ' + (/^\d+$/.test(String(peak.label)) ? 'day ' : '') + peak.label : 'No nights filed')
+      ] }
+    ];
   }
 
   function pieImage(charts, labels, values, colors) {
@@ -1444,7 +1510,7 @@
       doc.setFontSize(9);
       doc.setTextColor(28, 43, 57);
       doc.text(pie.title, x, y);
-      doc.addImage(pie.image, 'JPEG', x, y + 6, boxW, imgH);
+      doc.addImage(pie.image, 'PNG', x, y + 6, boxW, imgH);
     });
     return y + 14 + imgH;
   }
@@ -1469,16 +1535,11 @@
     const charts = window.NovotelCharts;
     body.innerHTML = `
       <p class="dmr-sub">${escapeHtml(range.from)} to ${escapeHtml(range.to)}</p>
-      <div class="dmr-stat-grid">
-        ${dashboardCards(stats).map(card => `<div class="dmr-card dmr-stat tone-${card.tone}"><div class="num">${escapeHtml(String(card.value))}</div><div class="lbl">${escapeHtml(card.label)}</div></div>`).join('')}
-      </div>
+      ${window.kpiBoard(dashboardTiers(stats))}
       <div class="dash-pies">
-        <div class="dmr-card dmr-chart-card"><h3>Duty reports</h3><div class="chart-box chart-box-pie"><canvas id="pieDuty"></canvas></div></div>
-        <div class="dmr-card dmr-chart-card"><h3>Night reports</h3><div class="chart-box chart-box-pie"><canvas id="pieNight"></canvas></div></div>
         <div class="dmr-card dmr-chart-card"><h3>Revenue Mix</h3><div class="chart-box chart-box-pie"><canvas id="pieRevenue"></canvas></div></div>
-        <div class="dmr-card dmr-chart-card"><h3>Guest Relation</h3><div class="chart-box chart-box-pie"><canvas id="pieGuest"></canvas></div></div>
+        <div class="dmr-card dmr-chart-card"><h3>Guest priority</h3><div class="chart-box chart-box-pie"><canvas id="guestPriority"></canvas></div></div>
       </div>
-      <div class="dmr-card dmr-chart-card"><h3>Guest priority</h3><div class="chart-box"><canvas id="guestPriority"></canvas></div></div>
       <div class="dmr-card dmr-chart-card"><h3>Guest Relation VIP</h3><div class="chart-box"><canvas id="guestVip"></canvas></div></div>
       ${window.actionItemsHtml ? window.actionItemsHtml((duty && duty.actionItems) || []) : ''}
       <div class="dmr-card dmr-chart-card"><h3>Duty occupancy and ALL Loyalty Members</h3><div class="chart-box"><canvas id="fullOcc"></canvas></div></div>
@@ -1515,10 +1576,7 @@
       window.drawTrend('fullRooms', (night && night.labels) || [], (night && night.roomsSeries) || [], 'Room revenue', '#1e22aa', '30,34,170', false);
     }
     drawRatesChart('fullRates', (night && night.labels) || [], (night && night.adr) || [], (night && night.revpar) || []);
-    drawPie('pieDuty', ['Submitted', 'Not submitted'], [stats.dutySubmitted, stats.dutyMissing], ['#4F7A5B', '#E7D3D0']);
-    drawPie('pieNight', ['Submitted', 'Not submitted'], [stats.nightFiled, stats.nightMissing], ['#0f766e', '#E7D3D0']);
     drawPie('pieRevenue', ['Rooms', 'F&B', 'M&E', 'OOD', 'Other'], [revenue.rooms || 0, revenue.fb || 0, revenue.me || 0, revenue.ood || 0, revenue.other || 0], ['#1e22aa', '#14b8a6', '#7c6bf2', '#A8814F', '#8aa0b2']);
-    drawPie('pieGuest', ['Submitted', 'Not submitted'], [stats.guestSubmitted || 0, stats.guestMissing || 0], ['#1e22aa', '#E7D3D0']);
     if (window.guestPriorityChart) window.guestPriorityChart(document.getElementById('guestPriority'), guest || {}, false);
     if (window.guestVipChart) window.guestVipChart(document.getElementById('guestVip'), guest || {}, false);
     const revOptions = charts.chartFrame();
@@ -1551,18 +1609,18 @@
     const duty = pack.duty || {};
     const night = pack.night || {};
     const stats = pack.stats || dashboardStats(duty, night, pack.index, pack.from, pack.to, pack.guest);
-    y = pdfStatCards(doc, W, y, dashboardCards(stats));
+    y = pdf.pdfKpiBoard(doc, W, y, dashboardTiers(stats));
     const revenueMix = stats.revenue || {};
-    y = pdfPieRow(doc, W, y, [
-      { title: 'Duty reports', image: pieImage(charts, ['Submitted', 'Not submitted'], [stats.dutySubmitted, stats.dutyMissing], ['#4F7A5B', '#E7D3D0']) },
-      { title: 'Night reports', image: pieImage(charts, ['Submitted', 'Not submitted'], [stats.nightFiled, stats.nightMissing], ['#0f766e', '#E7D3D0']) },
-      { title: 'Revenue Mix', image: pieImage(charts, ['Rooms', 'F&B', 'M&E', 'OOD', 'Other'], [revenueMix.rooms || 0, revenueMix.fb || 0, revenueMix.me || 0, revenueMix.ood || 0, revenueMix.other || 0], ['#1e22aa', '#14b8a6', '#7c6bf2', '#A8814F', '#8aa0b2']) },
-      { title: 'Guest Relation', image: pieImage(charts, ['Submitted', 'Not submitted'], [stats.guestSubmitted || 0, stats.guestMissing || 0], ['#1e22aa', '#E7D3D0']) }
-    ]);
-    y += 8;
     const guestPack = pack.guest || {};
+    const pies = [
+      { title: 'Revenue Mix', image: pieImage(charts, ['Rooms', 'F&B', 'M&E', 'OOD', 'Other'], [revenueMix.rooms || 0, revenueMix.fb || 0, revenueMix.me || 0, revenueMix.ood || 0, revenueMix.other || 0], ['#1e22aa', '#14b8a6', '#7c6bf2', '#A8814F', '#8aa0b2']) }
+    ];
     if (window.guestPriorityChart) {
-      y = pdfChart(doc, W, y, 'Guest priority', charts.chartImage(canvas => window.guestPriorityChart(canvas, guestPack, true)));
+      pies.push({ title: 'Guest priority', image: charts.chartImage(canvas => window.guestPriorityChart(canvas, guestPack, true), 420, 360) });
+    }
+    y = pdfPieRow(doc, W, y, pies);
+    y += 8;
+    if (window.guestVipChart) {
       y = pdfChart(doc, W, y, 'Guest Relation VIP', charts.chartImage(canvas => window.guestVipChart(canvas, guestPack, true)));
     }
     const series = window.occupancySeries(pack.index, pack.from, pack.to);
