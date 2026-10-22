@@ -1636,7 +1636,7 @@
   function pdfKpiHero(doc, card, x, y, w, h){
     pdfKpiCard(doc, x, y, w, h);
     const pad = 10;
-    pdfKpiText(doc, card.label, x + pad, y + 15, 7, [100, 116, 139], 'normal');
+    pdfKpiText(doc, card.label, x + pad, y + 15, 7.3, [30, 41, 59], 'bold');
     if (card.badge) {
       pdfKpiText(doc, card.badge, x + w - pad, y + 15, 7, pdfRgb(card.badgeColor || KPI_TONES[card.tone] || KPI_TONES.indigo), 'bold', { align: 'right' });
     }
@@ -1649,8 +1649,8 @@
     pdfKpiCard(doc, x, y, w, h);
     const pad = 9;
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.setTextColor(71, 85, 105);
+    doc.setFontSize(7.3);
+    doc.setTextColor(30, 41, 59);
     doc.text(doc.splitTextToSize(card.label, w - pad * 2).slice(0, 1), x + pad, y + 14);
     pdfKpiFigure(doc, card, x + pad, y + 34, 15);
     pdfKpiDivider(doc, x + pad, y + 42, w - pad * 2);
