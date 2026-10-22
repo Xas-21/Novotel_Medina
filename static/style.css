@@ -968,14 +968,22 @@ button.kpi-pair:hover { border-color: var(--brand-blue); box-shadow: 0 0 0 2px r
     position: fixed;
     top: 0;
     left: 0;
-    bottom: 0;
-    height: auto;
+    bottom: auto;
+    height: 100vh;
+    height: 100dvh;
     width: min(300px, 88vw);
     z-index: 50;
     transform: translateX(-100%);
     transition: transform 0.2s ease;
     overflow-y: auto;
-    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 0;
+  }
+  .dmr-nav-foot {
+    bottom: 0;
+    margin-bottom: 0;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
   }
   .dmr-root.nav-open .dmr-nav { transform: translateX(0); }
   .nav-close {
