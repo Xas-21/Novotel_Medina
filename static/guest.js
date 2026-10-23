@@ -117,6 +117,11 @@
     return `<div class="night-record" data-list="${list}" data-i="${index}">${cells}<button type="button" class="dmr-dyn-del" data-guest-del="1">✕</button></div>`;
   }
 
+  function sectionAcc(key, title, body){
+    const open = window.state && window.state.openAcc && window.state.openAcc.has(key) ? 'open' : '';
+    return `<details class="dmr-acc" data-acc="${key}" ${open}><summary><span>${title}</span><span class="arrow">▾</span></summary><div class="dmr-acc-body" style="padding-top:14px;">${body}</div></details>`;
+  }
+
   function paint(){
     const body = document.getElementById('guestBody');
     if (!body || !draft) return;
@@ -199,24 +204,12 @@
           </div>
           ${draft.submittedBy ? `<p class="dmr-prepared-by">Prepared by: ${escapeHtml(draft.submittedBy)}</p>` : ''}
         </div>
-        <div class="dmr-card dmr-section-card">
-          <h3>Scores</h3>
-          ${scores || '<p class="dmr-sub">No scores yet.</p>'}
-          ${dis ? '' : '<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="scores">+ Add score</button>'}
-        </div>
-        <div class="dmr-card dmr-section-card">
-          <h3>Membership</h3>
-          ${members || '<p class="dmr-sub">No membership rows yet.</p>'}
-          ${dis ? '' : '<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="membership">+ Add membership</button>'}
-        </div>
-        <div class="dmr-card dmr-section-card"><h3>Pre-arrival communication</h3>${pre || '<p class="dmr-sub">No guests yet.</p>'}<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="preArrival" ${dis}>+ Add guest</button></div>
-        <div class="dmr-card dmr-section-card"><h3>In-house welcome call</h3>${house || '<p class="dmr-sub">No guests yet.</p>'}<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="inHouse" ${dis}>+ Add guest</button></div>
-        <div class="dmr-card dmr-section-card"><h3>Departure courtesy call</h3>${leave || '<p class="dmr-sub">No guests yet.</p>'}<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="departure" ${dis}>+ Add guest</button></div>
-        <div class="dmr-card dmr-section-card">
-          <h3>General Comments</h3>
-          ${comments || '<p class="dmr-sub">No general comments yet.</p>'}
-          ${dis ? '' : '<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="generalComments">+ Add comment</button>'}
-        </div>
+        ${sectionAcc('guest-scores', 'Scores', `${scores || '<p class="dmr-sub">No scores yet.</p>'}${dis ? '' : '<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="scores">+ Add score</button>'}`)}
+        ${sectionAcc('guest-membership', 'Membership', `${members || '<p class="dmr-sub">No membership rows yet.</p>'}${dis ? '' : '<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="membership">+ Add membership</button>'}`)}
+        ${sectionAcc('guest-preArrival', 'Pre-arrival communication', `${pre || '<p class="dmr-sub">No guests yet.</p>'}<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="preArrival" ${dis}>+ Add guest</button>`)}
+        ${sectionAcc('guest-inHouse', 'In-house welcome call', `${house || '<p class="dmr-sub">No guests yet.</p>'}<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="inHouse" ${dis}>+ Add guest</button>`)}
+        ${sectionAcc('guest-departure', 'Departure courtesy call', `${leave || '<p class="dmr-sub">No guests yet.</p>'}<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="departure" ${dis}>+ Add guest</button>`)}
+        ${sectionAcc('guest-comments', 'General Comments', `${comments || '<p class="dmr-sub">No general comments yet.</p>'}${dis ? '' : '<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="generalComments">+ Add comment</button>'}`)}
         ${dis ? '' : `
         <div class="dmr-card" style="padding:18px;margin-top:10px;text-align:center;">
           <button type="button" class="dmr-btn dmr-btn-primary" id="guestSubmit" style="width:100%;justify-content:center;padding:13px;font-size:14.5px;">✓ Submit &amp; Close Daily Report</button>
@@ -293,11 +286,22 @@
     if (list === 'generalComments') return {comment:'', time:''};
     return {reservation:'', name:'', membership:'', arrival:'', departure:'', arrivalTime:'', preferences:'', action:'', note:'', callStatus:'', contacted:'', room:'', satisfaction:'', request:'', service:'', drink:'', fb:'', score:'', feedback:'', review:'', employeeRating:'', priority:'Normal'};
   }
+  const GUEST_ACC = {scores:'guest-scores', membership:'guest-membership', preArrival:'guest-preArrival', inHouse:'guest-inHouse', departure:'guest-departure', generalComments:'guest-comments'};
   async function onClick(e){
+    const summary = e.target.closest && e.target.closest('#guestForm summary');
+    if (summary && window.state && window.state.openAcc) {
+      const acc = summary.parentElement;
+      setTimeout(() => {
+        if (!acc) return;
+        if (acc.open) window.state.openAcc.add(acc.dataset.acc);
+        else window.state.openAcc.delete(acc.dataset.acc);
+      }, 0);
+    }
     const add = e.target.closest && e.target.closest('[data-guest-add]');
     const del = e.target.closest && e.target.closest('[data-guest-del]');
     if (add && canEdit() && !locked()) {
       read();
+      if (window.state && window.state.openAcc) window.state.openAcc.add(GUEST_ACC[add.dataset.guestAdd]);
       draft[add.dataset.guestAdd].push(emptyRow(add.dataset.guestAdd));
       paint();
       queue();

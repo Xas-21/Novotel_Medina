@@ -253,6 +253,14 @@
     body.innerHTML = formHtml(draft);
   }
 
+  function nightAcc(key, title, inner, extra){
+    const open = window.state && window.state.openAcc && window.state.openAcc.has(key) ? 'open' : '';
+    const side = extra
+      ? `<span style="display:flex;align-items:center;gap:10px;">${extra}<span class="arrow">▾</span></span>`
+      : '<span class="arrow">▾</span>';
+    return `<details class="dmr-acc" data-acc="${key}" ${open}><summary><span>${title}</span>${side}</summary><div class="dmr-acc-body" style="padding-top:14px;">${inner}</div></details>`;
+  }
+
   function formHtml(d){
     const dis = editingLocked() ? 'disabled' : '';
     const c = d.calculated || {};
@@ -289,9 +297,7 @@
             <div class="dmr-field"><label>ALL Loyalty Members</label><input type="text" inputmode="numeric" data-field="allMembers" value="${escapeHtml(d.allMembers)}" ${dis}></div>
           </div>
         </div>
-        <div class="dmr-card dmr-section-card">
-          <div class="night-card-head"><h3>General information</h3>${badge}</div>
-          <table class="night-figures">
+        ${nightAcc('night-general', 'General information', `<table class="night-figures">
             <thead>
               <tr>
                 <th></th>
@@ -305,12 +311,9 @@
             <tbody>
               ${rows.map(row => `<tr><th>${row[0]}</th><td>${row[1]}</td><td class="num">${row[2]}</td></tr>`).join('')}
             </tbody>
-          </table>
-        </div>
+          </table>`, badge)}
 
-        <div class="dmr-card dmr-section-card">
-          <h3>Segments</h3>
-          <table class="night-figures night-segments">
+        ${nightAcc('night-segments', 'Segments', `<table class="night-figures night-segments">
               <thead><tr><th>Code</th><th>Rooms</th></tr></thead>
               <tbody>
                 ${d.segments.map((seg, i) => `
@@ -320,12 +323,9 @@
                   </tr>`).join('')}
               </tbody>
             </table>
-          <p class="night-unassigned">Unassigned rooms <strong class="night-calc" data-calc="unassigned">${escapeHtml(formatCount(gap.unassigned))}</strong></p>
-        </div>
+          <p class="night-unassigned">Unassigned rooms <strong class="night-calc" data-calc="unassigned">${escapeHtml(formatCount(gap.unassigned))}</strong></p>`)}
 
-        <div class="dmr-card dmr-section-card">
-          <h3>Groups</h3>
-          ${d.groups.map((g, i) => `
+        ${nightAcc('night-groups', 'Groups', `${d.groups.map((g, i) => `
             <div class="night-record" data-group="${i}">
               ${labeled('Day', `<input type="date" data-g="day" value="${escapeHtml(g.day)}" ${dis}>`)}
               ${labeled('Name', `<input data-g="name" value="${escapeHtml(g.name)}" ${dis}>`)}
@@ -334,12 +334,9 @@
               ${labeled('Departure', `<input type="date" data-g="departure" value="${escapeHtml(g.departure)}" ${dis}>`)}
               <button type="button" class="dmr-dyn-del" data-night-del="group" ${dis}>✕</button>
             </div>`).join('')}
-          <button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-night-add="group" ${dis}>+ Add group</button>
-        </div>
+          <button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-night-add="group" ${dis}>+ Add group</button>`)}
 
-        <div class="dmr-card dmr-section-card">
-          <h3>VIP</h3>
-          ${d.vip.map((v, i) => `
+        ${nightAcc('night-vip', 'VIP', `${d.vip.map((v, i) => `
             <div class="night-vip" data-vip="${i}">
               ${labeled('Date', `<input type="date" data-v="date" value="${escapeHtml(v.date)}" ${dis}>`)}
               ${labeled('Gold', `<input data-v="gold" inputmode="decimal" value="${escapeHtml(v.gold)}" ${dis}>`)}
@@ -351,12 +348,9 @@
               </select>`)}
               <button type="button" class="dmr-dyn-del" data-night-del="vip" ${dis}>✕</button>
             </div>`).join('')}
-          <button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-night-add="vip" ${dis}>+ Add VIP</button>
-        </div>
+          <button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-night-add="vip" ${dis}>+ Add VIP</button>`)}
 
-        <div class="dmr-card dmr-section-card">
-          <h3>Forecast</h3>
-          <div class="night-scroll">
+        ${nightAcc('night-forecast', 'Forecast', `<div class="night-scroll">
             <table class="night-forecast">
               <thead>
                 <tr>
@@ -376,8 +370,7 @@
                   </tr>`).join('')}
               </tbody>
             </table>
-          </div>
-        </div>
+          </div>`)}
 
         ${window.renderNightInspection ? window.renderNightInspection(d.inspection, !!editingLocked()) : ''}
 
@@ -455,11 +448,11 @@
       if (window.renderOverlays) window.renderOverlays();
       return;
     }
-    const summary = t.closest('#nightInspection summary');
+    const summary = t.closest('#nightForm summary');
     if (summary) {
       const acc = summary.parentElement;
       setTimeout(() => {
-        if (!window.state || !acc) return;
+        if (!window.state || !window.state.openAcc || !acc) return;
         if (acc.open) window.state.openAcc.add(acc.dataset.acc);
         else window.state.openAcc.delete(acc.dataset.acc);
       }, 0);
@@ -639,6 +632,7 @@
     syncDraftFromDom();
     if (kind === 'group') draft.groups.push({day:'', name:'', rooms:'', arrival:'', departure:''});
     if (kind === 'vip') draft.vip.push({date:'', gold:'', platinum:'', diamond:'', stay:'in house'});
+    if (window.state && window.state.openAcc) window.state.openAcc.add(kind === 'group' ? 'night-groups' : 'night-vip');
     paint();
     queueNightSave();
   }
