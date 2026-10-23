@@ -1148,7 +1148,7 @@
     doc.setTextColor(28, 43, 57);
     doc.text(title, 40, y);
     y += 8;
-    doc.addImage(image, 'PNG', 40, y, W - 80, h);
+    doc.addImage(image, 'PNG', 40, y, W - 80, h, undefined, 'FAST');
     return y + h + 14;
   }
 
@@ -1216,7 +1216,7 @@
     if (!data || !window.jspdf || !window.NovotelCharts || !pdf) return;
     const state = window.state || {};
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const doc = new jsPDF({ unit: 'pt', format: 'a4', compress: true });
     const W = doc.internal.pageSize.getWidth();
     const logo = await pdf.getLogoDataUrl();
     let y = pdf.pdfHeader(doc, W, logo, 'NIGHT ANALYSIS');
@@ -1346,7 +1346,7 @@
   async function exportNightPdf(date){
     if (!window.jspdf || !window.NovotelPdf) return;
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const doc = new jsPDF({ unit: 'pt', format: 'a4', compress: true });
     await writeNightPdf(doc, date);
     doc.save('novotel-night-report-' + date + '.pdf');
   }
@@ -1524,7 +1524,7 @@
       doc.setFontSize(9);
       doc.setTextColor(28, 43, 57);
       doc.text(pie.title, x, y);
-      doc.addImage(pie.image, 'PNG', x, y + 6, boxW, imgH);
+      doc.addImage(pie.image, 'PNG', x, y + 6, boxW, imgH, undefined, 'FAST');
     });
     return y + 14 + imgH;
   }
@@ -1612,7 +1612,7 @@
     const pdf = window.NovotelPdf;
     if (!pack || !window.jspdf || !charts || !pdf || !window.occupancySeries) return;
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const doc = new jsPDF({ unit: 'pt', format: 'a4', compress: true });
     const W = doc.internal.pageSize.getWidth();
     const logo = await pdf.getLogoDataUrl();
     let y = pdf.pdfHeader(doc, W, logo, 'FULL REPORT');

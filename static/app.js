@@ -146,10 +146,26 @@
   function loadImg(url) {
     return new Promise((res) => {
       const img = new Image();
-      img.onload = () => res(img);
+      img.onload = () => res(pdfPhoto(img));
       img.onerror = () => res(null);
       img.src = url;
     });
+  }
+
+  // PDF photos print at about 3 cm; 640px keeps them sharp well beyond print resolution.
+  function pdfPhoto(img) {
+    const longest = Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height);
+    if (!longest) return img;
+    const scale = Math.min(1, 640 / longest);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round((img.naturalWidth || img.width) * scale);
+    canvas.height = Math.round((img.naturalHeight || img.height) * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    try { return canvas.toDataURL('image/jpeg', 0.86); } catch (e) { return img; }
   }
 
   function pdfHeader(doc, W, logoUrl, title) {
@@ -158,7 +174,7 @@
       const logoW = 180;
       const logoH = 42;
       const x = (W - logoW) / 2;
-      try { doc.addImage(logoUrl, 'PNG', x, 24, logoW, logoH); } catch(e) {}
+      try { doc.addImage(logoUrl, 'PNG', x, 24, logoW, logoH, undefined, 'FAST'); } catch(e) {}
     }
     doc.setFillColor(...NOVOTEL.navy);
     doc.rect(0, 88, W, 2, 'F');
@@ -2608,7 +2624,7 @@
     if (y + h + 46 > 780) { doc.addPage(); y = 45; }
     y = pdfSectionHeading(doc, W, y, title);
     y += 8;
-    doc.addImage(image, 'PNG', 40, y, W - 80, h);
+    doc.addImage(image, 'PNG', 40, y, W - 80, h, undefined, 'FAST');
     return y + h + 12;
   }
 
@@ -2674,7 +2690,7 @@
     if (!window.jspdf) { showToast('PDF generator loading, please try in a moment'); return; }
     const r = await loadReport(date);
     const { jsPDF } = window.jspdf;
-    const doc = sharedDoc || new jsPDF({ unit: 'pt', format: 'a4' });
+    const doc = sharedDoc || new jsPDF({ unit: 'pt', format: 'a4', compress: true });
     const W = doc.internal.pageSize.getWidth();
     const logoUrl = await getLogoDataUrl();
     let y = pdfHeader(doc, W, logoUrl);
@@ -2893,7 +2909,7 @@
     const d = state.analysisData;
     if (!d) return;
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    const doc = new jsPDF({ unit: 'pt', format: 'a4', compress: true });
     const W = doc.internal.pageSize.getWidth();
     const logoUrl = await getLogoDataUrl();
     let y = pdfHeader(doc, W, logoUrl);
@@ -2914,7 +2930,7 @@
         const h = pdfChartHeight(W - 80);
         if (y + h + 30 > 780) { doc.addPage(); y = 45; }
         y = pdfSectionHeading(doc, W, y, 'Occupancy %');
-        doc.addImage(occImg, 'PNG', 40, y + 4, W - 80, h);
+        doc.addImage(occImg, 'PNG', 40, y + 4, W - 80, h, undefined, 'FAST');
         y += h + 12;
       }
       const gssImg = chartImage(canvas => {
@@ -2929,7 +2945,7 @@
       const gssH = pdfChartHeight(W - 80);
       if (y + gssH + 30 > 780) { doc.addPage(); y = 45; }
       y = pdfSectionHeading(doc, W, y, 'TrustYou GSS');
-      doc.addImage(gssImg, 'PNG', 40, y + 4, W - 80, gssH);
+      doc.addImage(gssImg, 'PNG', 40, y + 4, W - 80, gssH, undefined, 'FAST');
       y += gssH + 12;
     } catch (e) {}
     const canvas = document.getElementById('sectionChart');
@@ -2952,7 +2968,7 @@
         const failH = pdfChartHeight(W - 80);
         if (y + failH + 30 > 780) { doc.addPage(); y = 45; }
         y = pdfSectionHeading(doc, W, y, 'Inspection Failures by Area');
-        doc.addImage(failImg, 'PNG', 40, y + 4, W - 80, failH);
+        doc.addImage(failImg, 'PNG', 40, y + 4, W - 80, failH, undefined, 'FAST');
         y += failH + 12;
       } catch (e) {}
     } else if (canvas) {
@@ -2960,7 +2976,7 @@
         const img = canvas.toDataURL('image/png');
         if (y + 170 > 780) { doc.addPage(); y = 45; }
         y = pdfSectionHeading(doc, W, y, 'Inspection Failures by Area');
-        doc.addImage(img, 'PNG', 40, y, W - 80, 150);
+        doc.addImage(img, 'PNG', 40, y, W - 80, 150, undefined, 'FAST');
         y += 158;
       } catch (e) {}
     }

@@ -696,7 +696,7 @@
     if (!data || !data.status) return;
     const {jsPDF} = window.jspdf;
     const pdf = window.NovotelPdf;
-    const doc = new jsPDF({unit:'pt', format:'a4'});
+    const doc = new jsPDF({ unit: 'pt', format: 'a4', compress: true });
     const W = doc.internal.pageSize.getWidth();
     const logo = await pdf.getLogoDataUrl();
     let y = pdf.pdfHeader(doc, W, logo, 'GUEST RELATION REPORT');
@@ -778,7 +778,7 @@
     const {jsPDF} = window.jspdf;
     const pdf = window.NovotelPdf;
     const charts = window.NovotelCharts;
-    const doc = new jsPDF({unit:'pt', format:'a4'});
+    const doc = new jsPDF({ unit: 'pt', format: 'a4', compress: true });
     const W = doc.internal.pageSize.getWidth();
     let y = pdf.pdfHeader(doc, W, await pdf.getLogoDataUrl(), 'GUEST RELATION ANALYSIS');
     doc.setFontSize(10); doc.text(data.startDate + ' to ' + data.endDate, 40, y); y += 12;
@@ -792,7 +792,7 @@
     const chartH = charts.pdfChartHeight(W - 80);
     if (y + chartH + 20 > 790) { doc.addPage(); y = 48; }
     doc.text('How guests were contacted', 40, y); y += 8;
-    doc.addImage(img, 'PNG', 40, y, W - 80, chartH); y += chartH + 16;
+    doc.addImage(img, 'PNG', 40, y, W - 80, chartH, undefined, 'FAST'); y += chartH + 16;
     const scoreImg = charts.chartImage(canvas => {
       const options = charts.chartFrame();
       options.animation = false; options.responsive = false;
@@ -801,7 +801,7 @@
     });
     if (y + chartH + 20 > 790) { doc.addPage(); y = 48; }
     doc.text('Scores (YTD)', 40, y); y += 8;
-    doc.addImage(scoreImg, 'PNG', 40, y, W - 80, chartH); y += chartH + 16;
+    doc.addImage(scoreImg, 'PNG', 40, y, W - 80, chartH, undefined, 'FAST'); y += chartH + 16;
     const extra = [
       ['Priority by section', canvas => sectionPriorityChart(canvas, data, true)],
       ['In-house satisfaction', canvas => satisfactionChart(canvas, data, true)],
@@ -814,7 +814,7 @@
       if (y + chartH + 20 > 790) { doc.addPage(); y = 48; }
       doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(28,43,57);
       doc.text(item[0], 40, y); y += 8;
-      doc.addImage(image, 'PNG', 40, y, W - 80, chartH); y += chartH + 16;
+      doc.addImage(image, 'PNG', 40, y, W - 80, chartH, undefined, 'FAST'); y += chartH + 16;
     });
     pdf.addPdfFooter(doc, W, 'Novotel — Guest Relation Analysis');
     doc.save('novotel-guest-analysis-' + data.startDate + '-to-' + data.endDate + '.pdf');
