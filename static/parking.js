@@ -29,13 +29,14 @@
     modal = null;
     if (state.view === 'logs') {
       queueMicrotask(loadLogs);
+      queueMicrotask(loadUserFilter);
       return `
         <div class="dmr-headline"><h1>Activity Logs</h1></div>
         <div class="dmr-sub">Every check-in, check-out, and extension on the parking floors</div>
         <div class="dmr-card parking-filters">
           <div class="dmr-field"><label>Parking Number</label><input id="parkFilterSpot" data-filter="spot" placeholder="e.g. B2-5" value="${escapeHtml(filters.spot)}"></div>
           <div class="dmr-field"><label>Filter by Date</label><input type="date" data-filter="date" value="${escapeHtml(filters.date)}"></div>
-          <div class="dmr-field"><label>Filter by User</label><input data-filter="user" placeholder="Name" value="${escapeHtml(filters.user)}"></div>
+          <div class="dmr-field"><label>Filter by User</label><select data-filter="user" id="parkFilterUser">${userOptions([])}</select></div>
           <button type="button" class="dmr-btn dmr-btn-ghost" id="parkFilterClear">Clear Filters</button>
         </div>
         <div class="dmr-card parking-logs" id="parkingLogs"><div class="dmr-empty">Loading logs…</div></div>`;
@@ -229,6 +230,17 @@
     const i = spots.findIndex(s => s.id === fresh.id);
     if (i >= 0) spots[i] = fresh;
     paintSpots();
+  }
+
+  function userOptions(names){
+    const list = filters.user && names.indexOf(filters.user) < 0 ? names.concat(filters.user) : names;
+    return '<option value="">All users</option>' + list.map(name => `<option value="${escapeHtml(name)}"${name === filters.user ? ' selected' : ''}>${escapeHtml(name)}</option>`).join('');
+  }
+
+  async function loadUserFilter(){
+    const names = await window.apiFetch('/api/parking/users');
+    const select = document.getElementById('parkFilterUser');
+    if (select && Array.isArray(names)) select.innerHTML = userOptions(names);
   }
 
   async function loadLogs(){

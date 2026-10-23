@@ -133,6 +133,19 @@ def _contains(text: str) -> str:
     return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
+@router.get("/users")
+async def list_log_users(_: TokenData = Depends(require_auth), db: aiosqlite.Connection = Depends(get_db)):
+    cursor = await db.execute("""
+        SELECT name FROM (
+            SELECT CASE WHEN TRIM(first_name || ' ' || last_name) = '' THEN username
+                        ELSE TRIM(first_name || ' ' || last_name) END AS name FROM users
+            UNION
+            SELECT actor FROM parking_logs
+        ) WHERE name != '' ORDER BY name COLLATE NOCASE
+    """)
+    return [row["name"] for row in await cursor.fetchall()]
+
+
 @router.get("/logs")
 async def list_logs(
     spot: str = "",
@@ -146,8 +159,8 @@ async def list_logs(
         where.append("spot_id LIKE ? ESCAPE '\\'")
         params.append(_contains(spot.strip()))
     if user.strip():
-        where.append("actor LIKE ? ESCAPE '\\'")
-        params.append(_contains(user.strip()))
+        where.append("actor = ?")
+        params.append(user.strip())
     if date.strip():
         where.append("date = ?")
         params.append(date.strip())

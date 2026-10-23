@@ -147,12 +147,25 @@ def test_logs_filter_by_spot_user_and_date(api):
     h = _headers("staff")
     by_spot = client.get("/api/parking/logs", params={"spot": "b3-1"}, headers=h).json()["items"]
     assert [log["spotId"] for log in by_spot] == ["B3-15"]
-    by_user = client.get("/api/parking/logs", params={"user": "sam"}, headers=h).json()["items"]
+    by_user = client.get("/api/parking/logs", params={"user": "Sam Staff"}, headers=h).json()["items"]
     assert [log["spotId"] for log in by_user] == ["B2-5"]
+    assert client.get("/api/parking/logs", params={"user": "Sam"}, headers=h).json()["items"] == []
     day = by_user[0]["date"]
     assert len(client.get("/api/parking/logs", params={"date": day}, headers=h).json()["items"]) == 2
     assert client.get("/api/parking/logs", params={"date": "2000-01-01"}, headers=h).json()["items"] == []
     assert client.get("/api/parking/logs", params={"user": "%"}, headers=h).json()["items"] == []
+
+
+def test_user_filter_lists_every_user_and_past_actors(api):
+    client, db_path = api
+    client.post("/api/parking/spots/B2-5/checkin", json=CHECKIN, headers=_headers("parking"))
+    con = sqlite3.connect(db_path)
+    con.execute("DELETE FROM users WHERE id = 'usr_park'")
+    con.commit()
+    con.close()
+    names = client.get("/api/parking/users", headers=_headers("guest")).json()
+    assert names == ["Gina Guest", "Nora Night", "Rana Desk", "Sam Staff"]
+    assert client.get("/api/parking/users").status_code == 401
 
 
 def test_changes_are_broadcast(api, monkeypatch):
