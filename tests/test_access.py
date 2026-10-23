@@ -32,3 +32,9 @@ def test_admin_writes_both():
 
 def test_unknown_role_writes_nothing():
     assert can_write("visitor", "duty") is False
+
+def test_parking_roles():
+    for role in ("admin", "staff", "night", "guest", "parking"):
+        assert can_write(role, "parking") is True
+    for section in ("duty", "night", "guest"):
+        assert can_write("parking", section) is False

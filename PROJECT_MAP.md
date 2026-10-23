@@ -37,6 +37,8 @@
 - `app/routes/reports.py`: CRUD endpoints for reports, checklists, dynamic entries, and analysis.
 - `app/routes/notes.py`: CRUD endpoints for notes and status updates.
 - `app/routes/upload.py`: Photo upload handler with image optimization.
+- `app/routes/parking.py`: Parkings — spot check-in / check-out / extend (`parking_spots`) and the activity log (`parking_logs`). The `parking` role sees only the Dashboard and Parkings; every other role can use Parkings too.
+- `static/parking.js`: Parkings section UI (Manage Parkings grid for floors B2/B3, Activity Logs with filters).
 - `static/index.html`: Complete UI matching duty manager visual specifications.
 - `static/app.js`: Reactive client logic, WebSocket sync, Chart.js analysis, and jsPDF reporting.
 - `static/style.css`: Refined styles with Fraunces/Inter typography and responsive layout.

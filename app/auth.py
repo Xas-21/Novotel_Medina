@@ -101,9 +101,11 @@ async def require_admin(user: TokenData = Depends(require_auth)) -> TokenData:
 
 def can_write(role: str, section: str) -> bool:
     if role == "admin" or role == "staff":
-        return section in ("duty", "night", "guest")
+        return section in ("duty", "night", "guest", "parking")
     if role == "night":
-        return section == "night"
+        return section in ("night", "parking")
     if role == "guest":
-        return section == "guest"
+        return section in ("guest", "parking")
+    if role == "parking":
+        return section == "parking"
     return False

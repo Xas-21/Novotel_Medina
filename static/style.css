@@ -1036,20 +1036,73 @@ body.nav-open { overflow: hidden; }
 }
 .login-card {
   background: #fff;
-  border-radius: 10px;
-  padding: 40px 36px 32px;
+  border-radius: 12px;
+  padding: 48px 44px 26px;
   width: 100%;
-  max-width: 360px;
+  max-width: 460px;
   text-align: center;
   box-shadow: 0 18px 50px rgba(20, 30, 40, 0.18);
   border: 1px solid var(--line);
 }
 .login-logo {
-  width: 230px;
+  width: 270px;
+  max-width: 100%;
   height: auto;
   display: block;
-  margin: 4px auto 20px;
+  margin: 4px auto 14px;
 }
+.login-title {
+  font-family: var(--font);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--navy);
+  margin: 0 0 30px;
+}
+.login-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 14px;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  user-select: none;
+}
+.login-card .login-remember input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--brand-blue);
+}
+.login-forgot {
+  display: block;
+  margin: 14px auto 0;
+  background: none;
+  border: none;
+  padding: 4px;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brand-blue);
+  cursor: pointer;
+}
+.login-forgot:hover { text-decoration: underline; }
+.login-help {
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20,25,30,0.55);
+}
+.login-help[hidden] { display: none; }
+.login-help .dmr-dialog { text-align: center; }
+.login-help .dmr-dialog-actions { justify-content: center; }
+.login-help .dmr-dialog-actions .dmr-btn { min-width: 110px; justify-content: center; }
 .login-sub {
   font-family: var(--font);
   font-size: 11.5px;
@@ -1063,10 +1116,10 @@ body.nav-open { overflow: hidden; }
   width: 100%;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 11px 13px;
-  font-size: 14px;
+  padding: 13px 14px;
+  font-size: 15px;
   font-family: var(--font);
-  margin-bottom: 12px;
+  margin-bottom: 14px;
   color: var(--ink);
 }
 .login-card input:focus {
@@ -1076,9 +1129,8 @@ body.nav-open { overflow: hidden; }
 .login-btn {
   width: 100%;
   justify-content: center;
-  padding: 12px;
-  font-size: 14px;
-  margin-top: 6px;
+  padding: 14px;
+  font-size: 15px;
 }
 .login-error {
   color: var(--danger);
@@ -1409,3 +1461,62 @@ body.nav-open { overflow: hidden; }
   .night-vip { grid-template-columns: 1fr 1fr; }
 }
 
+/* Parkings */
+.parking-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-bottom: 16px; font-size: 12.5px; color: var(--ink-soft); }
+.parking-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.parking-swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; }
+.parking-swatch.available { background: var(--ok); }
+.parking-swatch.occupied { background: var(--danger); }
+.parking-swatch.due-today { background: var(--warn); }
+.parking-swatch.overdue { background: #5E1F1A; }
+.parking-swatch.handicap { background: #fff; border: 3px solid var(--brass); }
+.parking-floor-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 14px; }
+.parking-floor-head h3 { margin: 0; color: var(--navy); }
+.parking-floor-head span { font-size: 12.5px; font-weight: 600; color: var(--ink-soft); }
+.parking-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(68px, 1fr)); gap: 12px; }
+.parking-spot {
+  aspect-ratio: 1; border: none; border-radius: 6px; color: #fff; cursor: pointer; position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-family: var(--font); box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: transform 0.15s ease;
+}
+.parking-spot:hover { transform: translateY(-2px); }
+.parking-spot:focus-visible { outline: 3px solid var(--brand-blue); outline-offset: 2px; }
+.parking-spot.available { background: var(--ok); }
+.parking-spot.occupied { background: var(--danger); }
+.parking-spot.due-today { background: var(--warn); }
+.parking-spot.overdue { background: #5E1F1A; box-shadow: 0 0 0 2px var(--danger), 0 2px 4px rgba(0,0,0,0.1); }
+.parking-spot.handicap { border: 3px solid var(--brass); }
+.parking-flag { position: absolute; top: 4px; left: 5px; font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; color: #FFD9D3; }
+.parking-overdue-count { color: var(--danger); }
+.parking-overdue-note { color: var(--danger); font-weight: 700; }
+.parking-num { font-size: 19px; font-weight: 700; line-height: 1; }
+.parking-size { position: absolute; top: 4px; right: 6px; font-size: 11px; opacity: 0.85; }
+.parking-icon { position: absolute; bottom: 3px; left: 5px; font-size: 12px; }
+.parking-room { margin-top: 4px; max-width: 90%; padding: 1px 4px; border-radius: 3px; background: rgba(0,0,0,0.2); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.parking-modal-bg {
+  position: fixed; inset: 0; z-index: 100; padding: 20px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(20,25,30,0.65); backdrop-filter: blur(2px);
+}
+.parking-dialog { max-width: 400px; }
+.parking-dialog h3 { text-align: center; }
+.parking-dialog .dmr-row > * { flex-basis: 140px; }
+.parking-dialog .dmr-field input { margin-bottom: 0; }
+.parking-check { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.dmr-dialog .parking-check input { width: auto; margin: 0; }
+.parking-guest { text-align: center; font-size: 18px; font-weight: 700; color: var(--navy); margin: 6px 0 12px; }
+.parking-info { background: var(--brass-light); border-left: 4px solid var(--brand-blue); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 16px; font-size: 13.5px; }
+.parking-info span { display: flex; align-items: center; gap: 5px; margin-top: 5px; }
+.parking-btn-warn { background: var(--warn); color: #fff; }
+.parking-btn-danger { background: var(--danger); color: #fff; }
+.parking-btn-warn:hover, .parking-btn-danger:hover { filter: brightness(0.92); }
+.parking-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 16px 18px 4px; margin-bottom: 16px; }
+.parking-filters .dmr-field { flex: 1 1 170px; }
+.parking-filters .dmr-btn { margin-bottom: 12px; }
+.parking-table-wrap { overflow-x: auto; }
+.parking-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.parking-table th { background: var(--navy); color: #fff; text-align: left; padding: 10px 12px; font-weight: 600; white-space: nowrap; }
+.parking-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.parking-table tbody tr:hover { background: var(--paper); }
+.parking-none { text-align: center; color: var(--ink-soft); }
+.parking-more { margin: 10px 14px; }

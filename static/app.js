@@ -75,9 +75,10 @@
   }
 
   function canWrite(role, section){
-    if (role === 'admin' || role === 'staff') return section === 'duty' || section === 'night' || section === 'guest';
-    if (role === 'night') return section === 'night';
-    if (role === 'guest') return section === 'guest';
+    if (role === 'admin' || role === 'staff') return section === 'duty' || section === 'night' || section === 'guest' || section === 'parking';
+    if (role === 'night') return section === 'night' || section === 'parking';
+    if (role === 'guest') return section === 'guest' || section === 'parking';
+    if (role === 'parking') return section === 'parking';
     return false;
   }
   function fmtDate(d){ const dt=new Date(d+"T00:00:00"); return dt.toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'}); }
@@ -407,6 +408,10 @@
             logout();
             return;
           }
+          if (msg.event === 'PARKING_UPDATED') {
+            if (window.onParkingUpdate) window.onParkingUpdate(msg);
+            return;
+          }
           if (msg.date === state.selectedDate && state.section === 'duty' && state.view === 'today') {
             // Report saves bounce back on the socket. Re-rendering destroys the input being typed in.
             if (msg.event === 'REPORT_UPDATED' || msg.event === 'NIGHT_REPORT_UPDATED') return;
@@ -456,6 +461,7 @@
     if (state.view === 'users') return 'Users';
     if (state.view === 'settings') return 'Settings';
     if (state.section === 'full') return 'Dashboard';
+    if (state.section === 'parking') return state.view === 'logs' ? 'Parkings · Activity Logs' : 'Parkings · Manage Parkings';
     const section = state.section === 'night' ? 'Night' : (state.section === 'guest' ? 'Guest Relation' : 'Duty');
     const view = { today: "Today's Report", archive: 'Archive', analysis: 'Analysis' }[state.view] || '';
     return view ? section + ' · ' + view : section;
@@ -562,6 +568,9 @@
     document.getElementById('loginScreen').style.display = 'flex';
     document.getElementById('login-password').value = '';
     document.getElementById('loginError').textContent = '';
+    const remembered = localStorage.getItem('novotel_remember_user');
+    if (remembered) document.getElementById('login-username').value = remembered;
+    document.getElementById('login-remember').checked = !!remembered;
 
     const loginBtn = document.getElementById('loginBtn');
     if (loginBtn && !loginBtn._bound) {
@@ -571,6 +580,12 @@
       const un = document.getElementById('login-username');
       if (pw) pw.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleLogin(); });
       if (un) un.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleLogin(); });
+      const forgot = document.getElementById('forgotDialog');
+      const closeForgot = () => { forgot.hidden = true; document.getElementById('forgotBtn').focus(); };
+      document.getElementById('forgotBtn').onclick = () => { forgot.hidden = false; document.getElementById('forgotOk').focus(); };
+      document.getElementById('forgotOk').onclick = closeForgot;
+      forgot.addEventListener('click', (e) => { if (e.target === forgot) closeForgot(); });
+      forgot.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeForgot(); });
     }
   }
 
@@ -592,6 +607,8 @@
       state.token = res.token;
       state.user = res.user;
       localStorage.setItem('novotel_token', res.token);
+      if (document.getElementById('login-remember').checked) localStorage.setItem('novotel_remember_user', username);
+      else localStorage.removeItem('novotel_remember_user');
       enterApp();
     } else {
       setLoginError((res && res.detail) || 'Login failed. Please try again.');
@@ -678,8 +695,12 @@
     if (usersBtn) usersBtn.style.display = admin ? 'flex' : 'none';
     if (settingsBtn) settingsBtn.style.display = admin ? 'flex' : 'none';
     const guestRole = state.user && state.user.role === 'guest';
+    const parkingRole = state.user && state.user.role === 'parking';
     document.querySelectorAll('[data-section="duty"], [data-section="night"], [data-nav-for="duty"], [data-nav-for="night"], [data-nav-for="general"]').forEach(el => {
-      el.style.display = guestRole ? 'none' : '';
+      el.style.display = guestRole || parkingRole ? 'none' : '';
+    });
+    document.querySelectorAll('#dmrNav [data-section="guest"], #dmrNav [data-nav-for="guest"]').forEach(el => {
+      el.style.display = parkingRole ? 'none' : '';
     });
 
     document.querySelectorAll('.dmr-navbtn').forEach(b => {
@@ -701,6 +722,8 @@
       main.innerHTML = window.renderNightSection();
     } else if (state.section === 'guest') {
       main.innerHTML = window.renderGuestSection ? window.renderGuestSection() : '';
+    } else if (state.section === 'parking') {
+      main.innerHTML = window.renderParkingSection ? window.renderParkingSection() : '';
     } else if (state.loading && state.view === 'today') {
       main.innerHTML = '<div class="dmr-empty"><h3>Loading report data…</h3></div>';
     } else if (state.view === 'today') {
@@ -1953,6 +1976,7 @@
           <option value="staff">Staff</option>
           <option value="night">Night Manager</option>
           <option value="guest">Guest Relation</option>
+          <option value="parking">Parking</option>
           <option value="admin">Admin</option>
         </select></div>
       </div>
@@ -1981,7 +2005,7 @@
             <div class="user-name">${escapeHtml(fullName(u))}</div>
             <div class="user-meta">@${escapeHtml(u.username)}${u.title ? ' · ' + escapeHtml(u.title) : ''}</div>
           </div>
-          <span class="user-role-badge ${u.role==='admin'?'user-role-admin':'user-role-staff'}">${u.role==='admin'?'Admin':(u.role==='night'?'Night Manager':(u.role==='guest'?'Guest Relation':'Staff'))}</span>
+          <span class="user-role-badge ${u.role==='admin'?'user-role-admin':'user-role-staff'}">${u.role==='admin'?'Admin':(u.role==='night'?'Night Manager':(u.role==='guest'?'Guest Relation':(u.role==='parking'?'Parking':'Staff')))}</span>
           <button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-user-edit="${escapeHtml(u.id)}">Edit</button>
           ${state.user && u.id !== state.user.id ? `<button class="dmr-del" data-user-del="${u.id}" data-user-name="${escapeHtml(u.username)}" title="Delete user">✕</button>` : ''}
         </div>

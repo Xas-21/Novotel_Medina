@@ -429,7 +429,7 @@ def test_create_user_rejects_unknown_role(api):
         },
     )
     assert res.status_code == 400
-    assert res.json()["detail"] == "Role must be staff, night, guest, or admin"
+    assert res.json()["detail"] == "Role must be staff, night, guest, parking, or admin"
 
 
 def test_user_form_offers_night_manager_between_staff_and_admin():

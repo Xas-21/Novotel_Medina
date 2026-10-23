@@ -183,4 +183,36 @@ async def init_db():
         )
         """)
 
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS parking_spots (
+            id TEXT PRIMARY KEY,
+            floor TEXT NOT NULL,
+            number INTEGER NOT NULL,
+            size TEXT NOT NULL DEFAULT 'L',
+            is_handicap INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'available',
+            room TEXT NOT NULL DEFAULT '',
+            is_visitor INTEGER NOT NULL DEFAULT 0,
+            date_out TEXT NOT NULL DEFAULT '',
+            time_out TEXT NOT NULL DEFAULT ''
+        )
+        """)
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS parking_logs (
+            id TEXT PRIMARY KEY,
+            actor TEXT NOT NULL,
+            action TEXT NOT NULL,
+            spot_id TEXT NOT NULL DEFAULT '-',
+            date TEXT NOT NULL,
+            time TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_parking_logs_created ON parking_logs(created_at)")
+        for floor, count, handicap, small in (("B2", 22, 15, (7, 11)), ("B3", 21, 12, (7, 11))):
+            await db.executemany(
+                "INSERT OR IGNORE INTO parking_spots (id, floor, number, size, is_handicap) VALUES (?, ?, ?, ?, ?)",
+                [(f"{floor}-{n}", floor, n, "S" if n in small else "L", int(n == handicap)) for n in range(1, count + 1)],
+            )
+
         await db.commit()

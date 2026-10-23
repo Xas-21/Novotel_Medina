@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from app.auth import signing_key
 from app.database import init_db, UPLOADS_DIR
-from app.routes import auth, reports, notes, upload, night, guest, settings
+from app.routes import auth, reports, notes, upload, night, guest, settings, parking
 from app.ws import ws_manager
 
 logging.basicConfig(
@@ -47,6 +47,7 @@ app.include_router(upload.router)
 app.include_router(night.router)
 app.include_router(guest.router)
 app.include_router(settings.router)
+app.include_router(parking.router)
 
 # Serve uploaded photos securely
 os.makedirs(UPLOADS_DIR, exist_ok=True)

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Novotel Medina - Daily Reports</title>
-  <link rel="stylesheet" href="/assets/style.css?v=30">
+  <link rel="stylesheet" href="/assets/style.css?v=33">
   <link rel="icon" href="/assets/novotel-logo-blue.png">
 </head>
 <body>
@@ -12,11 +12,21 @@
   <div id="loginScreen" class="login-screen" style="display:none;">
     <div class="login-card">
       <img src="/assets/novotel-logo-blue.png" class="login-logo" alt="Novotel logo">
+      <h1 class="login-title">Operation Management System</h1>
 
       <input type="text" id="login-username" placeholder="Username" autocomplete="username" autocapitalize="off">
       <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
+      <label class="login-remember"><input type="checkbox" id="login-remember"> Remember me</label>
       <button id="loginBtn" class="dmr-btn dmr-btn-primary login-btn">Sign In</button>
+      <button type="button" id="forgotBtn" class="login-forgot">Forgot your password?</button>
       <div id="loginError" class="login-error"></div>
+    </div>
+    <div class="login-help" id="forgotDialog" hidden>
+      <div class="dmr-dialog" role="dialog" aria-modal="true" aria-labelledby="forgotTitle">
+        <h3 id="forgotTitle">Forgot your password?</h3>
+        <p>Please contact your administration to reset your password.</p>
+        <div class="dmr-dialog-actions"><button type="button" class="dmr-btn dmr-btn-primary" id="forgotOk">OK</button></div>
+      </div>
     </div>
   </div>
 
@@ -50,10 +60,13 @@
       <button class="dmr-navbtn" data-section="night" data-view="today">Today's Report</button>
       <button class="dmr-navbtn" data-section="night" data-view="archive">Archive</button>
       <button class="dmr-navbtn" data-section="night" data-view="analysis">Analysis</button>
-      <div class="nav-section">Guest Relation</div>
+      <div class="nav-section" data-nav-for="guest">Guest Relation</div>
       <button class="dmr-navbtn" data-section="guest" data-view="today">Today's Report</button>
       <button class="dmr-navbtn" data-section="guest" data-view="archive">Archive</button>
       <button class="dmr-navbtn" data-section="guest" data-view="analysis">Analysis</button>
+      <div class="nav-section" data-nav-for="parking">Parkings</div>
+      <button class="dmr-navbtn" data-section="parking" data-view="manage">Manage Parkings</button>
+      <button class="dmr-navbtn" data-section="parking" data-view="logs">Activity Logs</button>
       <div class="nav-section" data-nav-for="general">General</div>
       <button class="dmr-navbtn" data-view="users" id="usersNavBtn" style="display:none;">Users</button>
       <button class="dmr-navbtn" data-view="settings" id="settingsNavBtn" style="display:none;">Settings</button>
@@ -76,9 +89,10 @@
   <!-- Third-party CDN libraries -->
   <script src="/assets/jspdf.umd.min.js"></script>
   <script src="/assets/chart.umd.min.js"></script>
-  <script src="/assets/routes.js?v=1"></script>
-  <script src="/assets/app.js?v=44"></script>
+  <script src="/assets/routes.js?v=3"></script>
+  <script src="/assets/app.js?v=46"></script>
   <script src="/assets/night.js?v=51"></script>
   <script src="/assets/guest.js?v=28"></script>
+  <script src="/assets/parking.js?v=3"></script>
 </body>
 </html>

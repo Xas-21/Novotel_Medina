@@ -19,6 +19,29 @@ test("each menu page has its own address", () => {
 
 test("unknown addresses open the dashboard", () => {
   assert.deepEqual(parsePath("/nope"), { section: "full", view: "today" });
+  assert.deepEqual(parsePath("/parking/today"), { section: "full", view: "today" });
+  assert.deepEqual(parsePath("/duty/manage"), { section: "full", view: "today" });
+});
+
+test("parkings has its own two pages", () => {
+  assert.deepEqual(parsePath("/parking"), { section: "parking", view: "manage" });
+  assert.deepEqual(parsePath("/parking/manage"), { section: "parking", view: "manage" });
+  assert.deepEqual(parsePath("/parking/logs"), { section: "parking", view: "logs" });
+  assert.equal(pathFor("parking", "logs"), "/parking/logs");
+});
+
+test("parking role sees only the dashboard and Parkings", () => {
+  assert.deepEqual(allowRoute({ section: "full", view: "today" }, "parking"), { section: "full", view: "today" });
+  assert.deepEqual(allowRoute({ section: "parking", view: "logs" }, "parking"), { section: "parking", view: "logs" });
+  assert.deepEqual(allowRoute({ section: "duty", view: "today" }, "parking"), { section: "parking", view: "manage" });
+  assert.deepEqual(allowRoute({ section: "guest", view: "archive" }, "parking"), { section: "parking", view: "manage" });
+  assert.deepEqual(allowRoute({ section: "full", view: "users" }, "parking"), { section: "full", view: "today" });
+});
+
+test("every other role can open Parkings", () => {
+  for (const role of ["admin", "staff", "night", "guest"]) {
+    assert.deepEqual(allowRoute({ section: "parking", view: "manage" }, role), { section: "parking", view: "manage" });
+  }
 });
 
 test("roles keep the pages they can already open", () => {
