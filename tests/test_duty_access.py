@@ -205,6 +205,30 @@ def test_guest_index_lists_vip_arrivals_and_departures(api):
     assert row["departures"] == "5"
 
 
+def test_guest_call_status_and_note_are_saved(api):
+    client, _db_path = api
+    staff = _headers(USERS["staff"])
+    saved = client.put(
+        "/api/guest",
+        json={
+            "date": "2099-06-03",
+            "preArrival": [{"name": "Ada", "action": "Called", "note": "Arrives after midnight", "callStatus": "No Answer"}],
+            "inHouse": [{"name": "Ben", "note": "Welcome drink declined", "callStatus": "Answered"}],
+            "departure": [{"name": "Cia", "note": "Asked for a late checkout", "callStatus": "Pending"}],
+        },
+        headers=staff,
+    )
+    assert saved.status_code == 200
+    report = client.get("/api/guest", params={"date": "2099-06-03"}, headers=staff).json()
+    assert report["preArrival"][0]["note"] == "Arrives after midnight"
+    assert report["preArrival"][0]["callStatus"] == "No Answer"
+    assert report["preArrival"][0]["action"] == "Called"
+    assert report["inHouse"][0]["note"] == "Welcome drink declined"
+    assert report["inHouse"][0]["callStatus"] == "Answered"
+    assert report["departure"][0]["note"] == "Asked for a late checkout"
+    assert report["departure"][0]["callStatus"] == "Pending"
+
+
 def test_guest_relation_saves_without_touching_other_reports(api):
     client, db_path = api
     staff = _headers(USERS["staff"])

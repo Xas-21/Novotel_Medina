@@ -1345,6 +1345,45 @@ body.nav-open { overflow: hidden; }
 #guestForm select.guest-priority[data-priority="Normal"] { color: #1e22aa; font-weight: 700; }
 #guestForm select.guest-priority[data-priority="Mid"] { color: #b8860b; font-weight: 700; }
 #guestForm select.guest-priority[data-priority="Urgent"] { color: #B14B3F; font-weight: 700; }
+#guestForm select.guest-call[data-call="Answered"] { color: #2e7d4c; font-weight: 700; }
+#guestForm select.guest-call[data-call="No Answer"] { color: #B14B3F; font-weight: 700; }
+#guestForm select.guest-call[data-call="Pending"] { color: #cc9900; font-weight: 700; }
+#guestForm .night-record[data-list="preArrival"] + .night-record[data-list="preArrival"],
+#guestForm .night-record[data-list="inHouse"] + .night-record[data-list="inHouse"],
+#guestForm .night-record[data-list="departure"] + .night-record[data-list="departure"],
+#guestForm .night-record[data-list="scores"] + .night-record[data-list="scores"],
+#guestForm .night-record[data-list="membership"] + .night-record[data-list="membership"],
+#guestForm .night-record[data-list="generalComments"] + .night-record[data-list="generalComments"] {
+  border-top: 2px solid #1e22aa;
+  margin-top: 8px;
+  padding-top: 18px;
+}
+#reportBody .dmr-field label,
+#nightForm .dmr-field label,
+#guestForm .dmr-field label,
+#reportBody .dmr-check-label,
+#nightForm .dmr-check-label,
+#nightForm .night-figures th,
+#nightForm .night-forecast th {
+  font-weight: 700;
+  color: #1C2B39;
+}
+#reportBody .dmr-check-desc,
+#nightForm .dmr-check-desc {
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+#reportBody input:not([type="file"]),
+#reportBody select,
+#reportBody textarea,
+#nightForm input:not([type="file"]),
+#nightForm select,
+#nightForm textarea,
+#guestForm input:not([type="file"]),
+#guestForm select,
+#guestForm textarea {
+  background: #EFEAE1;
+}
 .night-vip { grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.7fr) minmax(0, 0.7fr) minmax(0, 0.7fr) minmax(0, 1fr) auto; }
 .night-record .dmr-field,
 .night-vip .dmr-field { margin-bottom: 0; }

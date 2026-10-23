@@ -151,9 +151,9 @@ def _body_from_save(data: GuestSave) -> dict:
         "remarks": _text(data.remarks),
         "scores": _scores_from(data.scores),
         "membership": _membership_from(data.membership),
-        "preArrival": _rows(data.preArrival, ["reservation", "name", "membership", "arrival", "departure", "arrivalTime", "preferences", "action", "contacted", "priority"]),
-        "inHouse": _rows(data.inHouse, ["room", "name", "membership", "arrival", "departure", "satisfaction", "request", "service", "drink", "fb", "action", "contacted", "feedback", "priority"]),
-        "departure": _rows(data.departure, ["room", "name", "membership", "arrival", "departure", "score", "feedback", "review", "action", "contacted", "employeeRating", "priority"]),
+        "preArrival": _rows(data.preArrival, ["reservation", "name", "membership", "arrival", "departure", "arrivalTime", "preferences", "action", "note", "callStatus", "contacted", "priority"]),
+        "inHouse": _rows(data.inHouse, ["room", "name", "membership", "arrival", "departure", "satisfaction", "request", "service", "drink", "fb", "action", "note", "callStatus", "contacted", "feedback", "priority"]),
+        "departure": _rows(data.departure, ["room", "name", "membership", "arrival", "departure", "score", "feedback", "review", "action", "note", "callStatus", "contacted", "employeeRating", "priority"]),
         "generalComments": _rows(data.generalComments, ["comment", "time"]),
     }
 

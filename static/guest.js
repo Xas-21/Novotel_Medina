@@ -11,6 +11,7 @@
   const SERVICE = ['Yes','No','RFS','DND','Only Amenities'];
   const REVIEW = ['Sent','Not sent'];
   const PRIORITY = ['Normal','Mid','Urgent'];
+  const CALL_STATUS = ['Answered','No Answer','Pending'];
   const MARKS = ['1','2','3','4','5','6','7','8','9','10'];
 
   let draft = null;
@@ -53,6 +54,18 @@
     if (value === 'Mid') return [184, 134, 11];
     if (value === 'Normal') return [30, 34, 170];
     return [35, 48, 61];
+  }
+  function callStatusColor(value){
+    if (value === 'Answered') return [46, 125, 76];
+    if (value === 'No Answer') return [177, 75, 63];
+    if (value === 'Pending') return [204, 153, 0];
+    return [35, 48, 61];
+  }
+  function callStatusSelect(value, dis){
+    const current = CALL_STATUS.indexOf(value) >= 0 ? value : '';
+    const colors = {Answered:'#2e7d4c', 'No Answer':'#B14B3F', Pending:'#cc9900'};
+    const opts = '<option value=""></option>' + CALL_STATUS.map(item => `<option${item===current?' selected':''} style="color:${colors[item]};font-weight:700">${escapeHtml(item)}</option>`).join('');
+    return `<select data-k="callStatus" class="guest-call" data-call="${escapeHtml(current)}" ${dis}>${opts}</select>`;
   }
   function applyData(data){
     draft = {
@@ -131,6 +144,8 @@
       field('Arrival time', `<input type="time" data-k="arrivalTime" value="${escapeHtml(row.arrivalTime)}" ${dis}>`),
       field('Preferences', `<textarea data-k="preferences" rows="3" ${dis}>${escapeHtml(row.preferences)}</textarea>`, true),
       field('Action taken', `<textarea data-k="action" rows="3" ${dis}>${escapeHtml(row.action)}</textarea>`, true),
+      field('Note', `<textarea data-k="note" rows="3" ${dis}>${escapeHtml(row.note)}</textarea>`, true),
+      field('Call status', callStatusSelect(row.callStatus, dis)),
       field('Contacted by', `<select data-k="contacted" ${dis}>${options(CONTACT, row.contacted)}</select>`)
     ].join(''))).join('');
     const house = draft.inHouse.map((row, i) => textRow('inHouse', i, [
@@ -147,6 +162,8 @@
       field('F&B amenities', `<input data-k="fb" value="${escapeHtml(row.fb)}" ${dis}>`),
       field('Guest feedback', `<textarea data-k="feedback" rows="3" ${dis}>${escapeHtml(row.feedback)}</textarea>`, true),
       field('Action taken', `<textarea data-k="action" rows="3" ${dis}>${escapeHtml(row.action)}</textarea>`, true),
+      field('Note', `<textarea data-k="note" rows="3" ${dis}>${escapeHtml(row.note)}</textarea>`, true),
+      field('Call status', callStatusSelect(row.callStatus, dis)),
       field('Contacted by', `<select data-k="contacted" ${dis}>${options(CONTACT, row.contacted)}</select>`)
     ].join(''))).join('');
     const leave = draft.departure.map((row, i) => textRow('departure', i, [
@@ -161,6 +178,8 @@
       field('Guest feedback', `<textarea data-k="feedback" rows="3" ${dis}>${escapeHtml(row.feedback)}</textarea>`, true),
       field('Review reminder', `<select data-k="review" ${dis}>${options(REVIEW, row.review)}</select>`),
       field('Action taken', `<textarea data-k="action" rows="3" ${dis}>${escapeHtml(row.action)}</textarea>`, true),
+      field('Note', `<textarea data-k="note" rows="3" ${dis}>${escapeHtml(row.note)}</textarea>`, true),
+      field('Call status', callStatusSelect(row.callStatus, dis)),
       field('Contacted by', `<select data-k="contacted" ${dis}>${options(CONTACT, row.contacted)}</select>`)
     ].join(''))).join('');
     const comments = draft.generalComments.map((row, i) => textRow('generalComments', i, [
@@ -226,6 +245,7 @@
       }
     }
     if (target && target.classList && target.classList.contains('guest-priority')) target.dataset.priority = target.value;
+    if (target && target.classList && target.classList.contains('guest-call')) target.dataset.call = target.value;
     queue();
   }
   function queue(){
@@ -271,7 +291,7 @@
     if (list === 'scores') return {type:'', ytd:''};
     if (list === 'membership') return {tier:'', vip:'', arrival:'', inHouse:'', departure:''};
     if (list === 'generalComments') return {comment:'', time:''};
-    return {reservation:'', name:'', membership:'', arrival:'', departure:'', arrivalTime:'', preferences:'', action:'', contacted:'', room:'', satisfaction:'', request:'', service:'', drink:'', fb:'', score:'', feedback:'', review:'', employeeRating:'', priority:'Normal'};
+    return {reservation:'', name:'', membership:'', arrival:'', departure:'', arrivalTime:'', preferences:'', action:'', note:'', callStatus:'', contacted:'', room:'', satisfaction:'', request:'', service:'', drink:'', fb:'', score:'', feedback:'', review:'', employeeRating:'', priority:'Normal'};
   }
   async function onClick(e){
     const add = e.target.closest && e.target.closest('[data-guest-add]');
@@ -560,6 +580,8 @@
     const item = Object.assign({}, row);
     item.PRI = row.priority || '';
     item.PRI_color = priorityColor(row.priority);
+    item.CALL = row.callStatus || '';
+    item.CALL_color = callStatusColor(row.callStatus);
     return item;
   }
 
@@ -670,7 +692,7 @@
       let cx = x;
       cols.forEach((col, i) => {
         doc.setTextColor(...(person[col.key + '_color'] || [35, 48, 61]));
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+        doc.setFont('helvetica', col.key === 'CALL' && person.CALL ? 'bold' : 'normal'); doc.setFontSize(8);
         lines[i].forEach((line, n) => doc.text(line, cx + 4, y + 11 + n * 10));
         cx += col.w;
       });
@@ -725,9 +747,9 @@
       {key:'TIER', label:'TIER', w:140},{key:'VIP', label:'V', w:60},{key:'ARR', label:'ARRIVAL', w:100},{key:'INN', label:'IN-HOUSE', w:100},{key:'DEP', label:'DEPARTURE', w:100}
     ], (data.membership || []).map(row => ({TIER: row.tier || '', VIP: row.vip || '', ARR: row.arrival || '', INN: row.inHouse || '', DEP: row.departure || ''})));
     y = paintGuestPeople(doc, W, y, 'Pre-arrival', [
-      {key:'PRI', label:'PRIORITY', w:90},{key:'NAME', label:'GUEST', w:280},{key:'MEM', label:'TIER', w:145}
+      {key:'PRI', label:'PRIORITY', w:80},{key:'NAME', label:'GUEST', w:200},{key:'MEM', label:'TIER', w:120},{key:'CALL', label:'CALL STATUS', w:115}
     ], (data.preArrival || []).map(row => withPriority({
-      PRI: row.priority || '', NAME: row.name || '', MEM: row.membership || '', priority: row.priority,
+      PRI: row.priority || '', NAME: row.name || '', MEM: row.membership || '', priority: row.priority, callStatus: row.callStatus,
       facts: [
         {label:'Reservation #', text: row.reservation},
         {label:'Arrival', text: prettyDate(row.arrival)},
@@ -735,12 +757,12 @@
         {label:'Arrival time', text: prettyTime(row.arrivalTime)},
         {label:'Contacted by', text: row.contacted}
       ],
-      notes: [{label:'PREFERENCES', text: row.preferences}, {label:'ACTION', text: row.action}]
+      notes: [{label:'PREFERENCES', text: row.preferences}, {label:'ACTION', text: row.action}, {label:'NOTE', text: row.note}]
     })));
     y = paintGuestPeople(doc, W, y, 'In-house welcome call', [
-      {key:'PRI', label:'PRIORITY', w:90},{key:'ROOM', label:'ROOM', w:70},{key:'NAME', label:'GUEST', w:220},{key:'SAT', label:'SATISFACTION', w:135}
+      {key:'PRI', label:'PRIORITY', w:75},{key:'ROOM', label:'ROOM', w:55},{key:'NAME', label:'GUEST', w:155},{key:'SAT', label:'SATISFACTION', w:115},{key:'CALL', label:'CALL STATUS', w:115}
     ], (data.inHouse || []).map(row => withPriority({
-      PRI: row.priority || '', ROOM: row.room || '', NAME: row.name || '', SAT: row.satisfaction || '', priority: row.priority,
+      PRI: row.priority || '', ROOM: row.room || '', NAME: row.name || '', SAT: row.satisfaction || '', priority: row.priority, callStatus: row.callStatus,
       facts: [
         {label:'Membership', text: row.membership},
         {label:'Arrival', text: prettyDate(row.arrival)},
@@ -750,12 +772,12 @@
         {label:'F&B amenities', text: row.fb},
         {label:'Contacted by', text: row.contacted}
       ],
-      notes: [{label:'SPECIAL REQUEST', text: row.request}, {label:'FEEDBACK', text: row.feedback}, {label:'ACTION', text: row.action}]
+      notes: [{label:'SPECIAL REQUEST', text: row.request}, {label:'FEEDBACK', text: row.feedback}, {label:'ACTION', text: row.action}, {label:'NOTE', text: row.note}]
     })));
     y = paintGuestPeople(doc, W, y, 'Departure courtesy call', [
-      {key:'PRI', label:'PRIORITY', w:80},{key:'ROOM', label:'ROOM', w:60},{key:'NAME', label:'GUEST', w:200},{key:'SCORE', label:'SCORE', w:70},{key:'EMP', label:'EMPLOYEE', w:105}
+      {key:'PRI', label:'PRIORITY', w:70},{key:'ROOM', label:'ROOM', w:50},{key:'NAME', label:'GUEST', w:145},{key:'SCORE', label:'SCORE', w:55},{key:'EMP', label:'EMPLOYEE', w:80},{key:'CALL', label:'CALL STATUS', w:115}
     ], (data.departure || []).map(row => withPriority({
-      PRI: row.priority || '', ROOM: row.room || '', NAME: row.name || '', SCORE: row.score || '', EMP: row.employeeRating || '', priority: row.priority,
+      PRI: row.priority || '', ROOM: row.room || '', NAME: row.name || '', SCORE: row.score || '', EMP: row.employeeRating || '', priority: row.priority, callStatus: row.callStatus,
       facts: [
         {label:'Membership', text: row.membership},
         {label:'Arrival', text: prettyDate(row.arrival)},
@@ -763,7 +785,7 @@
         {label:'Review reminder', text: row.review},
         {label:'Contacted by', text: row.contacted}
       ],
-      notes: [{label:'FEEDBACK', text: row.feedback}, {label:'ACTION', text: row.action}]
+      notes: [{label:'FEEDBACK', text: row.feedback}, {label:'ACTION', text: row.action}, {label:'NOTE', text: row.note}]
     })));
     y = paintGuestPeople(doc, W, y, 'General Comments', [
       {key:'TIME', label:'TIME', w:120}
