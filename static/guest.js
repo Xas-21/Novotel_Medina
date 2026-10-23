@@ -117,6 +117,7 @@
     return `<div class="night-record" data-list="${list}" data-i="${index}">${cells}<button type="button" class="dmr-dyn-del" data-guest-del="1">✕</button></div>`;
   }
 
+  function guestNumber(i){ return `<div class="guest-wide guest-num">Guest ${i + 1}</div>`; }
   function sectionAcc(key, title, body){
     const open = window.state && window.state.openAcc && window.state.openAcc.has(key) ? 'open' : '';
     return `<details class="dmr-acc" data-acc="${key}" ${open}><summary><span>${title}</span><span class="arrow">▾</span></summary><div class="dmr-acc-body" style="padding-top:14px;">${body}</div></details>`;
@@ -140,6 +141,7 @@
       field('Departure', `<input data-k="departure" value="${escapeHtml(row.departure)}" ${dis}>`)
     ].join(''))).join('');
     const pre = draft.preArrival.map((row, i) => textRow('preArrival', i, [
+      guestNumber(i),
       field('Priority', prioritySelect(row.priority, dis)),
       field('Reservation #', `<input data-k="reservation" value="${escapeHtml(row.reservation)}" ${dis}>`),
       field('Guest name', `<input data-k="name" value="${escapeHtml(row.name)}" ${dis}>`),
@@ -154,6 +156,7 @@
       field('Contacted by', `<select data-k="contacted" ${dis}>${options(CONTACT, row.contacted)}</select>`)
     ].join(''))).join('');
     const house = draft.inHouse.map((row, i) => textRow('inHouse', i, [
+      guestNumber(i),
       field('Priority', prioritySelect(row.priority, dis)),
       field('Room #', `<input data-k="room" value="${escapeHtml(row.room)}" ${dis}>`),
       field('Guest name', `<input data-k="name" value="${escapeHtml(row.name)}" ${dis}>`),
@@ -172,6 +175,7 @@
       field('Contacted by', `<select data-k="contacted" ${dis}>${options(CONTACT, row.contacted)}</select>`)
     ].join(''))).join('');
     const leave = draft.departure.map((row, i) => textRow('departure', i, [
+      guestNumber(i),
       field('Priority', prioritySelect(row.priority, dis)),
       field('Room #', `<input data-k="room" value="${escapeHtml(row.room)}" ${dis}>`),
       field('Guest name', `<input data-k="name" value="${escapeHtml(row.name)}" ${dis}>`),

@@ -1342,6 +1342,7 @@ body.nav-open { overflow: hidden; }
 .night-record { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1fr) auto; }
 #guestForm .night-record { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
 #guestForm .guest-wide { grid-column: 1 / -1; }
+#guestForm .guest-num { font-weight: 700; font-size: 14px; color: #1C2B39; }
 #guestForm select.guest-priority[data-priority="Normal"] { color: #1e22aa; font-weight: 700; }
 #guestForm select.guest-priority[data-priority="Mid"] { color: #b8860b; font-weight: 700; }
 #guestForm select.guest-priority[data-priority="Urgent"] { color: #B14B3F; font-weight: 700; }
