@@ -186,6 +186,31 @@
     return 122;
   }
 
+  function pdfMasthead(doc, W, logoUrl, opts) {
+    const m = (opts && opts.margin) || 40;
+    const right = W - m;
+    if (logoUrl) {
+      try {
+        const props = doc.getImageProperties(logoUrl);
+        const h = 34;
+        const w = Math.min(170, h * props.width / props.height);
+        doc.addImage(logoUrl, 'PNG', m, 26, w, h, undefined, 'FAST');
+      } catch (e) {}
+    }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text(String(opts.title || '').toUpperCase(), right, 34, {align: 'right'});
+    doc.setFontSize(15); doc.setTextColor(15, 23, 42);
+    doc.text(opts.date || '', right, 53, {align: 'right'});
+    if (opts.preparedBy) {
+      doc.setFontSize(8.5); doc.setTextColor(...NOVOTEL.brandBlue);
+      doc.text('Prepared by: ' + opts.preparedBy, right, 67, {align: 'right'});
+    }
+    doc.setFillColor(...NOVOTEL.brandBlue);
+    doc.rect(m, 76, W - 2 * m, 2, 'F');
+    return 96;
+  }
+
   function cafeteriaHeading(meal, time) {
     const parts = [meal, time].filter(part => part);
     return 'Staff Cafeteria Inspection' + (parts.length ? ' — ' + parts.join(' · ') : '');
@@ -2693,19 +2718,8 @@
     const doc = sharedDoc || new jsPDF({ unit: 'pt', format: 'a4', compress: true });
     const W = doc.internal.pageSize.getWidth();
     const logoUrl = await getLogoDataUrl();
-    let y = pdfHeader(doc, W, logoUrl);
+    let y = pdfMasthead(doc, W, logoUrl, { title: 'Duty Manager Daily Report', date: fmtDate(date), preparedBy: preparerName(r) });
 
-    // Meta summary
-    doc.setFont('helvetica','bold'); doc.setFontSize(11);
-    doc.setTextColor(...NOVOTEL.navy);
-    doc.text(fmtDate(date), 40, y);
-    const prep = preparerName(r);
-    if (prep) {
-      doc.setFont('helvetica','bold'); doc.setFontSize(9);
-      doc.setTextColor(...NOVOTEL.brandBlue);
-      doc.text(`Prepared by: ${prep}`, W - 40, y, {align:'right'});
-    }
-    y += 16;
     doc.setFont('helvetica','normal'); doc.setFontSize(8.5);
     doc.setTextColor(...NOVOTEL.inkSoft);
     doc.text(`Shift: ${r.shiftStart || '—'}  to  ${r.shiftEnd || '—'}`, 40, y);
@@ -3741,7 +3755,7 @@
   window.renderApp = render;
   window.groupByMonth = groupByMonth;
   window.exportDutyPdf = exportPdf;
-  window.NovotelPdf = { pdfHeader, pdfTable, addPdfFooter, getLogoDataUrl, pdfKpiBoard };
+  window.NovotelPdf = { pdfHeader, pdfMasthead, pdfTable, addPdfFooter, getLogoDataUrl, pdfKpiBoard };
   window.occupancySeries = occupancySeries;
   window.periodBar = periodBar;
   window.periodQuery = periodQuery;

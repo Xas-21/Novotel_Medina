@@ -1236,8 +1236,9 @@
       return;
     }
     const logo = await pdf.getLogoDataUrl();
-    let y = pdf.pdfHeader(doc, W, logo, 'NIGHT MANAGER REPORT');
+    let y = pdf.pdfMasthead(doc, W, logo, { title: 'Night Manager Report', date: fmtDate(data.date || date), preparedBy: data.submittedBy });
     doc.setFont('helvetica', 'normal');
+    doc.setTextColor(35, 48, 61);
     doc.setFontSize(9);
     doc.text('Shift: ' + (data.shiftStart || '—') + '  to  ' + (data.shiftEnd || '—'), 40, y);
     doc.text('Arrivals: ' + (data.arrivals || '—'), 240, y);
@@ -1329,10 +1330,6 @@
     }
     if (window.appendNightInspectionPdf) {
       y = await window.appendNightInspectionPdf(doc, y, data.inspection || {});
-    }
-    if (data.submittedBy) {
-      doc.setFontSize(9);
-      doc.text('Prepared by: ' + data.submittedBy, 40, y + 8);
     }
     pdf.addPdfFooter(doc, W, 'Novotel — Night Manager Report', startPage);
   }

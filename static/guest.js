@@ -50,8 +50,8 @@
     return `<select data-k="priority" class="guest-priority" data-priority="${escapeHtml(current)}" ${dis}>${PRIORITY.map(item => `<option${item===current?' selected':''}>${item}</option>`).join('')}</select>`;
   }
   function priorityColor(value){
-    if (value === 'Urgent') return [177, 75, 63];
-    if (value === 'Mid') return [184, 134, 11];
+    if (value === 'Urgent') return [185, 28, 28];
+    if (value === 'Mid') return [180, 83, 9];
     if (value === 'Normal') return [30, 34, 170];
     return [35, 48, 61];
   }
@@ -577,46 +577,272 @@
     if (btn) btn.onclick = exportAnalysisPdf;
   }
 
-  function pdfTable(doc, pdf, W, y, title, cols, rows){
-    if (!rows.length) return y;
-    if (y > 700) { doc.addPage(); y = 48; }
-    doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(28,43,57);
-    doc.text(title, 40, y); y += 8;
-    return pdf.pdfTable(doc, W, y, cols, rows) + 10;
+  const GR = {
+    brand: [30, 34, 170], ink: [15, 23, 42], slate: [51, 65, 85], gray: [100, 116, 139],
+    line: [226, 232, 240], tint: [248, 250, 252], track: [241, 245, 249], white: [255, 255, 255],
+    midTint: [255, 251, 235], green: [6, 95, 70], red: [185, 28, 28], amber: [180, 83, 9], rose: [159, 18, 57]
+  };
+  const SUB_COLORS = {
+    'PREFERENCES': [[6, 95, 70], [4, 120, 87]],
+    'ACTION TAKEN': [[30, 64, 175], [29, 78, 216]],
+    'SPECIAL REQUEST': [[107, 33, 168], [126, 34, 206]],
+    'GUEST FEEDBACK': [[185, 28, 28], [220, 38, 38]],
+    'NOTE': [[146, 64, 14], [180, 83, 9]]
+  };
+  const LEGEND = [
+    ['PREFERENCES (Green)', [4, 120, 87]], ['ACTION TAKEN (Blue)', [29, 78, 216]],
+    ['SPECIAL REQUEST (Purple)', [126, 34, 206]], ['GUEST FEEDBACK (Red)', [220, 38, 38]], ['NOTE (Amber)', [180, 83, 9]]
+  ];
+  const txt = value => String(value == null ? '' : value).trim();
+  const dash = value => txt(value) || '-';
+  const part = (t, c, b, s) => ({t, c, b, s});
+  function pdfNumber(value){
+    const raw = txt(value).replace(/,/g, '');
+    if (raw === '') return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
   }
-  function withPriority(row){
-    const item = Object.assign({}, row);
-    item.PRI = row.priority || '';
-    item.PRI_color = priorityColor(row.priority);
-    item.CALL = row.callStatus || '';
-    item.CALL_color = callStatusColor(row.callStatus);
-    return item;
+  function satisfactionColor(value){
+    if (value === 'Satisfied') return GR.green;
+    if (value === 'Non Satisfied') return GR.red;
+    if (value === 'Have Comment') return GR.amber;
+    return GR.slate;
+  }
+  function markColor(value){
+    const n = pdfNumber(value);
+    if (n == null) return GR.slate;
+    return n >= 8 ? GR.green : (n >= 5 ? GR.amber : GR.red);
   }
 
-  function writeNote(doc, W, y, label, text){
-    const body = String(text || '').trim();
-    if (!body) return y;
-    const x = 40, width = W - 80;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
-    const wrapped = doc.splitTextToSize(body, width - 12);
-    const labelBar = () => {
-      if (y + 26 > 770) { doc.addPage(); y = 48; }
-      doc.setFillColor(247, 244, 236);
-      doc.rect(x, y, width, 14, 'F');
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); doc.setTextColor(30, 34, 170);
-      doc.text(label, x + 6, y + 10);
-      y += 14;
-    };
-    labelBar();
-    wrapped.forEach(line => {
-      if (y + 14 > 770) { doc.addPage(); y = 48; labelBar(); }
-      doc.setFillColor(247, 244, 236);
-      doc.rect(x, y, width, 12, 'F');
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(35, 48, 61);
-      doc.text(line, x + 6, y + 9);
-      y += 12;
-    });
-    return y + 2;
+  function guestPdfWriter(doc){
+    const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
+    const M = 28, TW = W - 2 * M, TOP = 48, BOTTOM = H - 44, PAD = 4, LABEL_W = 96;
+    const g = { y: 0 };
+    const font = (bold, size, color) => { doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(size); doc.setTextColor(...color); };
+    const border = (x, y, w, h) => { doc.setDrawColor(...GR.brand); doc.setLineWidth(1.5); doc.rect(x, y, w, h, 'S'); doc.setLineWidth(0.75); };
+
+    function measure(parts, width){
+      const out = [];
+      let h = 0;
+      parts.forEach(p => {
+        const t = txt(p.t);
+        if (!t) return;
+        const s = p.s || 7.5;
+        doc.setFont('helvetica', p.b ? 'bold' : 'normal'); doc.setFontSize(s);
+        const lines = doc.splitTextToSize(t, width - 2 * PAD);
+        out.push({p, s, lines});
+        h += lines.length * s * 1.28;
+      });
+      return {out, h};
+    }
+    function paint(cell, x, y){
+      let cy = y;
+      cell.out.forEach(({p, s, lines}) => {
+        font(p.b, s, p.c || GR.ink);
+        lines.forEach(line => { doc.text(line, x + PAD, cy + s * 0.95); cy += s * 1.28; });
+      });
+    }
+
+    function strip(items){
+      const h = 34, cw = TW / items.length;
+      doc.setFillColor(...GR.tint); doc.setDrawColor(...GR.line); doc.setLineWidth(0.75);
+      doc.rect(M, g.y, TW, h, 'FD');
+      items.forEach((item, i) => {
+        const x = M + i * cw;
+        if (i) doc.line(x, g.y, x, g.y + h);
+        font(true, 6.5, GR.gray); doc.text(item.label, x + 10, g.y + 12);
+        font(true, 11, item.color || GR.ink); doc.text(item.value, x + 10, g.y + 26);
+      });
+      g.y += h + 18;
+    }
+
+    function summary(data, occText){
+      const scores = (data.scores || []).filter(r => txt(r.type) || txt(r.ytd));
+      const members = (data.membership || []).filter(r => txt(r.tier) || txt(r.vip) || txt(r.arrival) || txt(r.inHouse) || txt(r.departure));
+      const house = data.inHouse || [];
+      const LW = Math.round(TW * 0.4), RX = M + LW + 12, RW = TW - LW - 12;
+      font(true, 10, GR.ink);
+      doc.text('Scores & Shift Analytics', M, g.y + 9);
+      doc.text('Membership', RX, g.y + 9);
+      font(false, 6.5, GR.gray);
+      doc.text('YTD & Call Outcomes', M + LW, g.y + 9, {align: 'right'});
+      doc.text('Tier Breakdown & Share Chart', M + TW, g.y + 9, {align: 'right'});
+      const y0 = g.y + 15;
+
+      let ly = y0;
+      const c1 = 58, c3 = 46, c2 = LW - c1 - c3;
+      doc.setFillColor(...GR.brand); doc.rect(M, ly, LW, 16, 'F');
+      font(true, 6.5, GR.white);
+      doc.text('SCORE', M + 6, ly + 10.5);
+      doc.text('VISUAL BENCHMARK', M + c1 + 4, ly + 10.5);
+      doc.text('YTD', M + LW - 6, ly + 10.5, {align: 'right'});
+      ly += 16;
+      if (!scores.length) { font(false, 7.5, GR.gray); doc.text('No scores recorded', M + 6, ly + 10.5); ly += 16; }
+      scores.forEach((s, i) => {
+        if (i % 2) { doc.setFillColor(...GR.tint); doc.rect(M, ly, LW, 16, 'F'); }
+        font(true, 7.5, GR.ink); doc.text(doc.splitTextToSize(dash(s.type), c1 - 8)[0], M + 6, ly + 10.5);
+        const v = pdfNumber(s.ytd);
+        const scale = v == null ? 100 : (v <= 5 ? 5 : (v <= 10 ? 10 : 100));
+        const bw = c2 - 8;
+        doc.setFillColor(...GR.track); doc.roundedRect(M + c1 + 4, ly + 5, bw, 6, 2, 2, 'F');
+        if (v != null && v > 0) { doc.setFillColor(...GR.brand); doc.roundedRect(M + c1 + 4, ly + 5, Math.max(3, bw * Math.min(v / scale, 1)), 6, 2, 2, 'F'); }
+        font(true, 7.5, GR.brand); doc.text(dash(s.ytd), M + LW - 6, ly + 10.5, {align: 'right'});
+        ly += 16;
+      });
+      const total = house.length;
+      const noAnswer = house.filter(r => r.callStatus === 'No Answer').length;
+      const satisfied = house.filter(r => r.callStatus !== 'No Answer' && r.satisfaction === 'Satisfied').length;
+      const followUp = total - noAnswer - satisfied;
+      doc.setFillColor(...GR.tint); doc.rect(M, ly, LW, 50, 'F');
+      doc.setDrawColor(...GR.line); doc.line(M, ly, M + LW, ly);
+      font(true, 6.5, GR.slate); doc.text('WELCOME CALL OUTCOMES (' + total + ')', M + 6, ly + 11);
+      font(false, 6.5, GR.gray); doc.text(satisfied + ' Sat | ' + followUp + ' Follow-up | ' + noAnswer + ' No Ans', M + LW - 6, ly + 11, {align: 'right'});
+      const bx = M + 6, bw = LW - 12, by = ly + 17;
+      doc.setFillColor(...GR.track); doc.rect(bx, by, bw, 7, 'F');
+      if (total) {
+        let cx = bx;
+        [[satisfied, [4, 120, 87]], [followUp, GR.brand], [noAnswer, [245, 158, 11]]].forEach(([n, c]) => {
+          if (!n) return;
+          doc.setFillColor(...c); doc.rect(cx, by, bw * n / total, 7, 'F');
+          cx += bw * n / total;
+        });
+      }
+      font(false, 6.5, GR.gray); doc.text('VIP Movement Ratio', M + 6, ly + 40);
+      font(true, 6.5, GR.ink); doc.text('Arr: ' + dash(data.arrivals) + ' / Dep: ' + dash(data.departures) + ' (Occ ' + (occText || '-') + ')', M + LW - 6, ly + 40, {align: 'right'});
+      ly += 50;
+      border(M, y0, LW, ly - y0);
+
+      let ry = y0;
+      const mc = [['TIER', 70], ['V', 28], ['ARRIVAL', 46, true], ['IN-HOUSE', 48, true], ['DEPARTURE', 54, true], ['IN-HOUSE CHART', RW - 246]];
+      doc.setFillColor(...GR.brand); doc.rect(RX, ry, RW, 16, 'F');
+      let hx = RX;
+      mc.forEach(([label, w, right]) => {
+        font(true, 6.5, GR.white);
+        doc.text(label, right ? hx + w - 5 : hx + 5, ry + 10.5, right ? {align: 'right'} : undefined);
+        hx += w;
+      });
+      ry += 16;
+      const count = v => pdfNumber(v) || 0;
+      const sums = {a: 0, i: 0, d: 0};
+      members.forEach(r => { sums.a += count(r.arrival); sums.i += count(r.inHouse); sums.d += count(r.departure); });
+      const memberRow = (cells, share, fill, bold) => {
+        if (fill) { doc.setFillColor(...fill); doc.rect(RX, ry, RW, 15, 'F'); }
+        let cx = RX;
+        cells.forEach((value, i) => {
+          const [, w, right] = mc[i];
+          font(bold || i === 3, 7.5, i === 0 ? GR.ink : GR.slate);
+          doc.text(doc.splitTextToSize(value, w - 8)[0] || '', right ? cx + w - 5 : cx + 5, ry + 10, right ? {align: 'right'} : undefined);
+          cx += w;
+        });
+        const cw = mc[5][1], tw = cw - 36;
+        doc.setFillColor(...GR.track); doc.roundedRect(cx + 5, ry + 5, tw, 5, 2, 2, 'F');
+        if (share > 0) { doc.setFillColor(...GR.brand); doc.roundedRect(cx + 5, ry + 5, Math.max(2, tw * share), 5, 2, 2, 'F'); }
+        font(true, 7, GR.ink); doc.text(sums.i ? Math.round(share * 100) + '%' : '-', cx + cw - 5, ry + 10, {align: 'right'});
+        ry += 15;
+      };
+      if (!members.length) { font(false, 7.5, GR.gray); doc.text('No membership rows', RX + 5, ry + 10); ry += 15; }
+      members.forEach((r, i) => memberRow([dash(r.tier), dash(r.vip), dash(r.arrival), dash(r.inHouse), dash(r.departure)], sums.i ? count(r.inHouse) / sums.i : 0, i % 2 ? GR.tint : null));
+      if (members.length) memberRow(['Total', '-', String(sums.a), String(sums.i), String(sums.d)], sums.i ? 1 : 0, GR.track, true);
+      border(RX, y0, RW, ry - y0);
+      g.y = Math.max(ly, ry) + 20;
+    }
+
+    function legend(){
+      const h = 18;
+      doc.setFillColor(...GR.tint); doc.setDrawColor(...GR.line); doc.setLineWidth(0.75);
+      doc.rect(M, g.y, TW, h, 'FD');
+      const title = 'SUB-ROW TEXT COLOR KEY:';
+      font(true, 6.5, GR.slate); doc.text(title, M + 8, g.y + 11.5);
+      let x = M + 8 + doc.getTextWidth(title) + 12;
+      const widths = LEGEND.map(([t]) => doc.getTextWidth(t) + 9);
+      const gap = Math.max(6, (M + TW - 8 - x - widths.reduce((a, b) => a + b, 0)) / (LEGEND.length - 1));
+      LEGEND.forEach(([t, c], i) => {
+        doc.setFillColor(...c); doc.circle(x + 2.5, g.y + 9.3, 2.3, 'F');
+        font(true, 6.5, c); doc.text(t, x + 8, g.y + 11.5);
+        x += widths[i] + gap;
+      });
+      g.y += h + 16;
+    }
+
+    function headerHeight(cols){
+      font(true, 6.5, GR.white);
+      return Math.max(...cols.map(c => doc.splitTextToSize(c.label, c.w - 2 * PAD).length)) * 8 + 8;
+    }
+    function table(title, cols, records){
+      if (!records.length) return;
+      cols = cols.map(c => Object.assign({}, c, {w: c.f * TW}));
+      const hh = headerHeight(cols);
+      const groups = records.map(r => {
+        const cells = r.cells.map((parts, i) => measure(parts, cols[i].w));
+        const mainH = Math.max(14, ...cells.map(c => c.h)) + 8;
+        font(false, 7.5, GR.ink);
+        const subs = (r.subs || []).filter(s => txt(s[1])).map(s => {
+          const lines = doc.splitTextToSize(txt(s[1]), TW - LABEL_W - PAD - 4);
+          return {label: s[0], lines, h: lines.length * 9.6 + 7};
+        });
+        return {r, cells, mainH, subs, h: mainH + subs.reduce((a, s) => a + s.h, 0)};
+      });
+      const note = records.length + (records.length === 1 ? ' record' : ' records');
+      let top = 0;
+      const open = cont => {
+        font(true, 11, GR.ink); doc.text(cont ? title + ' (Continued)' : title, M, g.y + 10);
+        if (!cont) { font(false, 7, GR.gray); doc.text(note, M + TW, g.y + 10, {align: 'right'}); }
+        g.y += 16;
+        top = g.y;
+        doc.setFillColor(...GR.brand); doc.rect(M, g.y, TW, hh, 'F');
+        let x = M;
+        cols.forEach(c => {
+          font(true, 6.5, GR.white);
+          doc.splitTextToSize(c.label, c.w - 2 * PAD).forEach((line, i) => doc.text(line, x + PAD, g.y + 10 + i * 8));
+          x += c.w;
+        });
+        g.y += hh;
+      };
+      const breakPage = () => { border(M, top, TW, g.y - top); doc.addPage(); g.y = TOP; open(true); };
+      if (g.y + 16 + hh + groups[0].mainH > BOTTOM) { doc.addPage(); g.y = TOP; }
+      open(false);
+      groups.forEach((group, gi) => {
+        if (g.y + group.h > BOTTOM && g.y > top + hh + 1) breakPage();
+        doc.setFillColor(...(group.r.tint || (gi % 2 ? GR.tint : GR.white)));
+        doc.rect(M, g.y, TW, group.mainH, 'F');
+        let x = M;
+        group.cells.forEach((cell, i) => { paint(cell, x, g.y + 4); x += cols[i].w; });
+        g.y += group.mainH;
+        group.subs.forEach(sub => {
+          if (g.y + sub.h > BOTTOM) breakPage();
+          const colors = SUB_COLORS[sub.label] || [GR.brand, GR.ink];
+          doc.setDrawColor(...GR.line); doc.setLineWidth(0.75); doc.line(M, g.y, M + TW, g.y);
+          font(true, 7, colors[0]); doc.text(sub.label + ':', M + PAD + 2, g.y + 10);
+          font(false, 7.5, colors[1]);
+          sub.lines.forEach((line, i) => doc.text(line, M + LABEL_W, g.y + 10 + i * 9.6));
+          g.y += sub.h;
+        });
+        if (gi < groups.length - 1) { doc.setDrawColor(...GR.brand); doc.setLineWidth(1.5); doc.line(M, g.y, M + TW, g.y); doc.setLineWidth(0.75); }
+      });
+      border(M, top, TW, g.y - top);
+      g.y += 20;
+    }
+
+    function finish(dateText, preparedBy){
+      const total = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= total; i++) {
+        doc.setPage(i);
+        if (i > 1) {
+          doc.setFillColor(...GR.tint); doc.rect(M, 14, TW, 20, 'F');
+          doc.setFillColor(...GR.brand); doc.rect(M, 34, TW, 1.2, 'F');
+          font(true, 7, GR.brand); doc.text('NOVOTEL', M + 8, 27);
+          const nw = doc.getTextWidth('NOVOTEL  ');
+          font(true, 7, GR.slate); doc.text('·  GUEST RELATION REPORT (' + dateText + ')', M + 8 + nw, 27);
+          if (preparedBy) { font(true, 7, GR.brand); doc.text('Prepared by: ' + preparedBy, M + TW - 8, 27, {align: 'right'}); }
+        }
+        doc.setDrawColor(...GR.line); doc.setLineWidth(0.75); doc.line(M, H - 30, M + TW, H - 30);
+        font(false, 7.5, GR.gray);
+        doc.text('Novotel — Guest Relation Report', M, H - 18);
+        doc.text('Page ' + i + ' of ' + total, M + TW, H - 18, {align: 'right'});
+      }
+    }
+
+    return { g, M, strip, summary, legend, table, finish };
   }
 
   function prettyDate(value){
@@ -634,92 +860,6 @@
     hour = hour % 12 || 12;
     return (hour < 10 ? '0' : '') + hour + ':' + match[2] + ' ' + suffix;
   }
-  function writeFacts(doc, W, y, facts){
-    const filled = (facts || []).filter(item => String(item.text || '').trim());
-    if (!filled.length) return y;
-    const x0 = 40, limit = W - 44, gap = 16, lineH = 13;
-    let x = x0;
-    const ensure = () => {
-      if (y + lineH <= 770) return;
-      doc.addPage();
-      y = 48;
-      x = x0;
-    };
-    ensure();
-    filled.forEach(item => {
-      const label = String(item.label || '').toUpperCase();
-      const value = String(item.text).trim();
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
-      const labelW = doc.getTextWidth(label);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
-      if (x > x0 && x + labelW + 20 > limit) { x = x0; y += lineH; ensure(); }
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(30, 34, 170);
-      doc.text(label, x, y + 9);
-      const room = Math.max(40, limit - (x + labelW + 4));
-      const lines = doc.splitTextToSize(value, room);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(35, 48, 61);
-      doc.text(lines[0], x + labelW + 4, y + 9);
-      x += labelW + 4 + doc.getTextWidth(lines[0]) + gap;
-      lines.slice(1).forEach(extra => {
-        x = x0; y += lineH; ensure();
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(35, 48, 61);
-        doc.text(extra, x, y + 9);
-        x = x0 + doc.getTextWidth(extra) + gap;
-      });
-    });
-    return y + lineH + 1;
-  }
-
-  function paintGuestPeople(doc, W, y, title, cols, people){
-    if (!people.length) return y;
-    if (y > 700) { doc.addPage(); y = 48; }
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(28, 43, 57);
-    doc.text(title, 40, y);
-    y += 8;
-    const x = 40, width = W - 80, headerH = 16;
-    const header = (cy) => {
-      doc.setFillColor(30, 34, 170);
-      doc.rect(x, cy, width, headerH, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
-      let cx = x;
-      cols.forEach(col => { doc.text(col.label, cx + 4, cy + 10.5); cx += col.w; });
-      return cy + headerH;
-    };
-    y = header(y);
-    people.forEach((person, ri) => {
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
-      const lines = cols.map(col => {
-        const txt = person[col.key] != null ? String(person[col.key]) : '';
-        return txt ? doc.splitTextToSize(txt, col.w - 8) : [''];
-      });
-      const rowH = Math.max(16, 6 + Math.max(...lines.map(list => list.length)) * 10);
-      if (y + rowH > 770) { doc.addPage(); y = 48; y = header(y); }
-      doc.setFillColor(...(ri % 2 === 0 ? [255, 255, 255] : [250, 249, 244]));
-      doc.rect(x, y, width, rowH, 'F');
-      let cx = x;
-      cols.forEach((col, i) => {
-        doc.setTextColor(...(person[col.key + '_color'] || [35, 48, 61]));
-        doc.setFont('helvetica', col.key === 'CALL' && person.CALL ? 'bold' : 'normal'); doc.setFontSize(8);
-        lines[i].forEach((line, n) => doc.text(line, cx + 4, y + 11 + n * 10));
-        cx += col.w;
-      });
-      y += rowH;
-      if (person.facts) y = writeFacts(doc, W, y, person.facts);
-      (person.notes || []).forEach(note => { y = writeNote(doc, W, y, note.label, note.text); });
-      if (ri < people.length - 1 && y < 750) {
-        y += 8;
-        doc.setDrawColor(30, 34, 170);
-        doc.setLineWidth(0.7);
-        doc.line(x + 4, y, x + width - 4, y);
-        y += 10;
-      } else {
-        y += 6;
-      }
-    });
-    return y + 8;
-  }
-
   async function exportPdf(date){
     if (!window.jspdf || !window.NovotelPdf) return;
     const data = await window.apiFetch('/api/guest?date=' + encodeURIComponent(date));
@@ -728,77 +868,75 @@
     const pdf = window.NovotelPdf;
     const doc = new jsPDF({ unit: 'pt', format: 'a4', compress: true });
     const W = doc.internal.pageSize.getWidth();
-    const logo = await pdf.getLogoDataUrl();
-    let y = pdf.pdfHeader(doc, W, logo, 'GUEST RELATION REPORT');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(28, 43, 57);
-    doc.text(fmtDate(data.date), 40, y);
-    if (data.submittedBy) {
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(30, 34, 170);
-      doc.text('Prepared by: ' + data.submittedBy, W - 40, y, {align:'right'});
-    }
-    y += 16;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(110, 120, 132);
-    doc.text('Shift: ' + (data.shiftStart || '—') + '  to  ' + (data.shiftEnd || '—'), 40, y);
-    const occText = window.withPercent ? (window.withPercent(data.occupancy) || '—') : (data.occupancy ? data.occupancy + '%' : '—');
-    const occColor = window.occupancyColor ? window.occupancyColor(data.occupancy) : [110, 120, 132];
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(occColor[0], occColor[1], occColor[2]);
-    doc.text('VIP occ: ' + occText, 200, y);
-    doc.setFont('helvetica', 'normal'); doc.setTextColor(110, 120, 132);
-    doc.text('Total VIP arrival: ' + (data.arrivals || '—'), 300, y);
-    doc.text('Total VIP departure: ' + (data.departures || '—'), 430, y);
-    y += 16;
-    y = pdfTable(doc, pdf, W, y, 'Scores', [
-      {key:'TYPE', label:'SCORE', w:260},{key:'YTD', label:'YTD', w:200}
-    ], (data.scores || []).map(row => ({TYPE: row.type || '', YTD: row.ytd || ''})));
-    y = pdfTable(doc, pdf, W, y, 'Membership', [
-      {key:'TIER', label:'TIER', w:140},{key:'VIP', label:'V', w:60},{key:'ARR', label:'ARRIVAL', w:100},{key:'INN', label:'IN-HOUSE', w:100},{key:'DEP', label:'DEPARTURE', w:100}
-    ], (data.membership || []).map(row => ({TIER: row.tier || '', VIP: row.vip || '', ARR: row.arrival || '', INN: row.inHouse || '', DEP: row.departure || ''})));
-    y = paintGuestPeople(doc, W, y, 'Pre-arrival', [
-      {key:'PRI', label:'PRIORITY', w:80},{key:'NAME', label:'GUEST', w:200},{key:'MEM', label:'TIER', w:120},{key:'CALL', label:'CALL STATUS', w:115}
-    ], (data.preArrival || []).map(row => withPriority({
-      PRI: row.priority || '', NAME: row.name || '', MEM: row.membership || '', priority: row.priority, callStatus: row.callStatus,
-      facts: [
-        {label:'Reservation #', text: row.reservation},
-        {label:'Arrival', text: prettyDate(row.arrival)},
-        {label:'Departure', text: prettyDate(row.departure)},
-        {label:'Arrival time', text: prettyTime(row.arrivalTime)},
-        {label:'Contacted by', text: row.contacted}
+    const out = guestPdfWriter(doc);
+    const dateText = fmtDate(data.date);
+    const occText = window.withPercent ? window.withPercent(data.occupancy) : (txt(data.occupancy) ? txt(data.occupancy) + '%' : '');
+    out.g.y = pdf.pdfMasthead(doc, W, await pdf.getLogoDataUrl(), { title: 'Guest Relation Report', date: dateText, preparedBy: data.submittedBy, margin: out.M });
+    out.strip([
+      {label: 'SHIFT', value: (data.shiftStart || '—') + ' to ' + (data.shiftEnd || '—')},
+      {label: 'VIP OCC', value: occText || '—', color: GR.rose},
+      {label: 'TOTAL VIP ARRIVAL', value: dash(data.arrivals)},
+      {label: 'TOTAL VIP DEPARTURE', value: dash(data.departures)}
+    ]);
+    out.summary(data, occText);
+    const priorityCell = (row, i) => [part('GUEST ' + (i + 1), GR.gray, true, 6), part(row.priority || 'Normal', priorityColor(row.priority || 'Normal'), true)];
+    const tint = row => row.priority === 'Mid' ? GR.midTint : null;
+    const slate = value => [part(dash(value), GR.slate)];
+    const strong = value => [part(dash(value), GR.ink, true)];
+    const call = row => row.callStatus ? part(row.callStatus, callStatusColor(row.callStatus), true) : null;
+    const pre = data.preArrival || [], house = data.inHouse || [], leave = data.departure || [];
+    if (pre.length || house.length || leave.length) out.legend();
+    out.table('Pre-arrival', [
+      {label: 'PRIORITY', f: 0.08}, {label: 'GUEST', f: 0.20}, {label: 'RESERVATION #', f: 0.15}, {label: 'TIER', f: 0.09},
+      {label: 'ARRIVAL', f: 0.10}, {label: 'DEPARTURE', f: 0.10}, {label: 'ARRIVAL TIME', f: 0.10}, {label: 'CONTACT & CALL STATUS', f: 0.18}
+    ], pre.map((row, i) => ({
+      tint: tint(row),
+      cells: [
+        priorityCell(row, i), strong(row.name), strong(row.reservation), slate(row.membership),
+        slate(prettyDate(row.arrival)), slate(prettyDate(row.departure)), slate(prettyTime(row.arrivalTime)),
+        [part(dash(row.contacted), GR.slate), call(row)].filter(Boolean)
       ],
-      notes: [{label:'PREFERENCES', text: row.preferences}, {label:'ACTION', text: row.action}, {label:'NOTE', text: row.note}]
+      subs: [['PREFERENCES', row.preferences], ['ACTION TAKEN', row.action], ['NOTE', row.note]]
     })));
-    y = paintGuestPeople(doc, W, y, 'In-house welcome call', [
-      {key:'PRI', label:'PRIORITY', w:75},{key:'ROOM', label:'ROOM', w:55},{key:'NAME', label:'GUEST', w:155},{key:'SAT', label:'SATISFACTION', w:115},{key:'CALL', label:'CALL STATUS', w:115}
-    ], (data.inHouse || []).map(row => withPriority({
-      PRI: row.priority || '', ROOM: row.room || '', NAME: row.name || '', SAT: row.satisfaction || '', priority: row.priority, callStatus: row.callStatus,
-      facts: [
-        {label:'Membership', text: row.membership},
-        {label:'Arrival', text: prettyDate(row.arrival)},
-        {label:'Departure', text: prettyDate(row.departure)},
-        {label:'Service done?', text: row.service},
-        {label:'Welcome drink', text: row.drink},
-        {label:'F&B amenities', text: row.fb},
-        {label:'Contacted by', text: row.contacted}
+    out.table('In-house welcome call', [
+      {label: 'PRIORITY', f: 0.08}, {label: 'ROOM', f: 0.11}, {label: 'GUEST', f: 0.15}, {label: 'MEMBERSHIP', f: 0.10},
+      {label: 'ARRIVAL', f: 0.10}, {label: 'DEPARTURE', f: 0.10}, {label: 'SERVICE / DRINK / F&B', f: 0.14},
+      {label: 'CONTACT', f: 0.09}, {label: 'SATISFACTION', f: 0.13}
+    ], house.map((row, i) => {
+      const service = [['Svc', row.service], ['Drk', row.drink], ['F&B', row.fb]].filter(item => txt(item[1])).map(item => part(item[0] + ': ' + txt(item[1]), GR.slate));
+      return {
+        tint: tint(row),
+        cells: [
+          priorityCell(row, i), strong(row.room), strong(row.name), slate(row.membership),
+          slate(prettyDate(row.arrival)), slate(prettyDate(row.departure)),
+          service.length ? service : slate(''), slate(row.contacted),
+          [part(dash(row.satisfaction), satisfactionColor(row.satisfaction), true), call(row)].filter(Boolean)
+        ],
+        subs: [['SPECIAL REQUEST', row.request], ['GUEST FEEDBACK', row.feedback], ['ACTION TAKEN', row.action], ['NOTE', row.note]]
+      };
+    }));
+    out.table('Departure courtesy call', [
+      {label: 'PRIORITY', f: 0.08}, {label: 'ROOM #', f: 0.10}, {label: 'GUEST NAME', f: 0.14}, {label: 'TIER', f: 0.08},
+      {label: 'ARRIVAL', f: 0.095}, {label: 'DEPARTURE', f: 0.095}, {label: 'SATISF. 1–10', f: 0.07},
+      {label: 'EMP. RATING', f: 0.08}, {label: 'REVIEW REMINDER', f: 0.10}, {label: 'STATUS & BY', f: 0.16}
+    ], leave.map((row, i) => ({
+      tint: tint(row),
+      cells: [
+        priorityCell(row, i), strong(row.room), strong(row.name), slate(row.membership),
+        slate(prettyDate(row.arrival)), slate(prettyDate(row.departure)),
+        txt(row.score) ? [part(txt(row.score) + ' / 10', markColor(row.score), true)] : slate(''),
+        txt(row.employeeRating) ? [part(txt(row.employeeRating) + ' / 10', GR.brand, true)] : slate(''),
+        slate(row.review),
+        [call(row), part(dash(row.contacted), GR.slate)].filter(Boolean)
       ],
-      notes: [{label:'SPECIAL REQUEST', text: row.request}, {label:'FEEDBACK', text: row.feedback}, {label:'ACTION', text: row.action}, {label:'NOTE', text: row.note}]
+      subs: [['GUEST FEEDBACK', row.feedback], ['ACTION TAKEN', row.action], ['NOTE', row.note]]
     })));
-    y = paintGuestPeople(doc, W, y, 'Departure courtesy call', [
-      {key:'PRI', label:'PRIORITY', w:70},{key:'ROOM', label:'ROOM', w:50},{key:'NAME', label:'GUEST', w:145},{key:'SCORE', label:'SCORE', w:55},{key:'EMP', label:'EMPLOYEE', w:80},{key:'CALL', label:'CALL STATUS', w:115}
-    ], (data.departure || []).map(row => withPriority({
-      PRI: row.priority || '', ROOM: row.room || '', NAME: row.name || '', SCORE: row.score || '', EMP: row.employeeRating || '', priority: row.priority, callStatus: row.callStatus,
-      facts: [
-        {label:'Membership', text: row.membership},
-        {label:'Arrival', text: prettyDate(row.arrival)},
-        {label:'Departure', text: prettyDate(row.departure)},
-        {label:'Review reminder', text: row.review},
-        {label:'Contacted by', text: row.contacted}
-      ],
-      notes: [{label:'FEEDBACK', text: row.feedback}, {label:'ACTION', text: row.action}, {label:'NOTE', text: row.note}]
+    out.table('General Comments', [
+      {label: 'TIME', f: 0.14}, {label: 'COMMENT', f: 0.86}
+    ], (data.generalComments || []).map(row => ({
+      cells: [[part(dash(prettyTime(row.time)), GR.slate, true)], [part(dash(row.comment), GR.ink)]]
     })));
-    y = paintGuestPeople(doc, W, y, 'General Comments', [
-      {key:'TIME', label:'TIME', w:120}
-    ], (data.generalComments || []).map(row => ({TIME: prettyTime(row.time) || '—', notes: [{label:'COMMENT', text: row.comment}]})));
-    pdf.addPdfFooter(doc, W, 'Novotel — Guest Relation Report');
+    out.finish(dateText, data.submittedBy);
     doc.save('novotel-guest-relation-' + date + '.pdf');
   }
 
