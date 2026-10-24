@@ -208,6 +208,13 @@ async def init_db():
             created_at TEXT NOT NULL
         )
         """)
+        spot_cols = [r[1] for r in await (await db.execute("PRAGMA table_info(parking_spots)")).fetchall()]
+        for name in ("guest_name", "plate", "car_model", "car_colour", "oos_from", "oos_to"):
+            if name not in spot_cols:
+                await db.execute(f"ALTER TABLE parking_spots ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
+        log_cols = [r[1] for r in await (await db.execute("PRAGMA table_info(parking_logs)")).fetchall()]
+        if "details_json" not in log_cols:
+            await db.execute("ALTER TABLE parking_logs ADD COLUMN details_json TEXT NOT NULL DEFAULT '{}'")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_parking_logs_created ON parking_logs(created_at)")
         for floor, count, handicap, small in (("B2", 22, 15, (7, 11)), ("B3", 21, 12, (7, 11))):
             await db.executemany(

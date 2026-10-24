@@ -1469,6 +1469,7 @@ body.nav-open { overflow: hidden; }
 .parking-swatch.occupied { background: var(--danger); }
 .parking-swatch.due-today { background: var(--warn); }
 .parking-swatch.overdue { background: #5E1F1A; }
+.parking-swatch.out-of-service { background: #8A9099; }
 .parking-swatch.handicap { background: #fff; border: 3px solid var(--brass); }
 .parking-floor-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 14px; }
 .parking-floor-head h3 { margin: 0; color: var(--navy); }
@@ -1486,7 +1487,9 @@ body.nav-open { overflow: hidden; }
 .parking-spot.due-today { background: var(--warn); }
 .parking-spot.overdue { background: #5E1F1A; box-shadow: 0 0 0 2px var(--danger), 0 2px 4px rgba(0,0,0,0.1); }
 .parking-spot.handicap { border: 3px solid var(--brass); }
+.parking-spot.out-of-service { background: #8A9099; }
 .parking-flag { position: absolute; top: 4px; left: 5px; font-size: 8.5px; font-weight: 800; letter-spacing: 0.4px; color: #FFD9D3; }
+.parking-oos { margin-top: 3px; font-size: 8.5px; font-weight: 700; letter-spacing: 0.2px; line-height: 1.1; white-space: nowrap; }
 .parking-overdue-count { color: var(--danger); }
 .parking-overdue-note { color: var(--danger); font-weight: 700; }
 .parking-num { font-size: 19px; font-weight: 700; line-height: 1; }
@@ -1498,7 +1501,24 @@ body.nav-open { overflow: hidden; }
   display: flex; align-items: center; justify-content: center;
   background: rgba(20,25,30,0.65); backdrop-filter: blur(2px);
 }
-.parking-dialog { max-width: 400px; }
+.parking-dialog { max-width: 440px; max-height: calc(100vh - 40px); overflow-y: auto; }
+.parking-dialog .dmr-dialog-actions { flex-wrap: wrap; }
+.parking-btn-left { margin-right: auto; }
+.parking-btn-grey { background: #6B7280; color: #fff; }
+.parking-btn-grey:hover { filter: brightness(0.92); }
+.parking-info.parking-info-grey { border-left-color: #6B7280; }
+.parking-colours { display: flex; flex-wrap: wrap; gap: 8px; }
+.dmr-field .parking-colour { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 20px; font-size: 13px; cursor: pointer; text-transform: none; letter-spacing: 0; color: var(--ink); font-weight: 500; margin: 0; }
+.parking-colour:has(input:checked) { border-color: var(--brand-blue); box-shadow: 0 0 0 1px var(--brand-blue); background: #F2F3FB; }
+.dmr-dialog .parking-colour input { width: auto; margin: 0; accent-color: var(--brand-blue); }
+.parking-dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.25); }
+.parking-details { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 14px; }
+.parking-detail { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; font-size: 13.5px; border-bottom: 1px solid var(--line); }
+.parking-detail:last-child { border-bottom: none; }
+.parking-detail span { color: var(--ink-soft); }
+.parking-detail b { text-align: right; overflow-wrap: anywhere; }
+.parking-log-row { cursor: pointer; }
+.parking-log-row:focus-visible { outline: 2px solid var(--brand-blue); outline-offset: -2px; }
 .parking-dialog h3 { text-align: center; }
 .parking-dialog .dmr-row > * { flex-basis: 140px; }
 .parking-dialog .dmr-field input { margin-bottom: 0; }

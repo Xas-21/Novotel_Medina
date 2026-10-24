@@ -1,11 +1,12 @@
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from app.auth import TokenData, can_write, require_auth
+from app.auth import TokenData, can_write, require_admin, require_auth
 from app.database import get_db
 from app.ws import ws_manager
 
@@ -17,15 +18,24 @@ LOG_LIMIT = 500
 
 
 class CheckIn(BaseModel):
-    room: str = ""
+    room: str = Field("", max_length=40)
     isVisitor: bool = False
     date: str = ""
     time: str = ""
+    guestName: str = Field("", max_length=120)
+    plate: str = Field("", max_length=40)
+    carModel: str = Field("", max_length=80)
+    carColour: str = Field("", max_length=40)
 
 
 class Extend(BaseModel):
     date: str = ""
     time: str = ""
+
+
+class OutOfService(BaseModel):
+    dateFrom: str = ""
+    dateTo: str = ""
 
 
 def _require_write(user: TokenData):
@@ -40,6 +50,23 @@ def _checkout_time(date: str, time: str):
         raise HTTPException(status_code=400, detail="Date and Time required")
 
 
+def _today() -> str:
+    return datetime.now(RIYADH).strftime("%Y-%m-%d")
+
+
+def _car(row):
+    return {
+        "room": row["room"],
+        "isVisitor": bool(row["is_visitor"]),
+        "guestName": row["guest_name"],
+        "plate": row["plate"],
+        "carModel": row["car_model"],
+        "carColour": row["car_colour"],
+        "dateOut": row["date_out"],
+        "timeOut": row["time_out"],
+    }
+
+
 def _spot(row):
     return {
         "id": row["id"],
@@ -48,11 +75,15 @@ def _spot(row):
         "size": row["size"],
         "isHandicap": bool(row["is_handicap"]),
         "status": row["status"],
-        "room": row["room"],
-        "isVisitor": bool(row["is_visitor"]),
-        "dateOut": row["date_out"],
-        "timeOut": row["time_out"],
+        **_car(row),
+        "oosFrom": row["oos_from"],
+        "oosTo": row["oos_to"],
     }
+
+
+def _out_of_service_now(row) -> bool:
+    today = _today()
+    return bool(row["oos_from"]) and row["oos_from"] <= today <= row["oos_to"]
 
 
 async def _get_spot(db, spot_id: str):
@@ -63,14 +94,14 @@ async def _get_spot(db, spot_id: str):
     return row
 
 
-async def _logged(db, user: TokenData, spot_id: str, action: str):
+async def _logged(db, user: TokenData, spot_id: str, action: str, details: dict):
     now = datetime.now(RIYADH)
     await db.execute(
-        "INSERT INTO parking_logs (id, actor, action, spot_id, date, time, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO parking_logs (id, actor, action, spot_id, date, time, created_at, details_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (
             f"plog_{uuid.uuid4().hex[:12]}", user.full_name, action, spot_id,
             now.strftime("%Y-%m-%d"), now.strftime("%I:%M:%S %p").lstrip("0"),
-            now.isoformat(timespec="microseconds"),
+            now.isoformat(timespec="microseconds"), json.dumps(details),
         ),
     )
     await db.commit()
@@ -92,27 +123,35 @@ async def check_in(spot_id: str, data: CheckIn, user: TokenData = Depends(requir
     if not data.isVisitor and not room:
         raise HTTPException(status_code=400, detail="Room Number required")
     _checkout_time(data.date, data.time)
-    await _get_spot(db, spot_id)
+    row = await _get_spot(db, spot_id)
+    if _out_of_service_now(row):
+        raise HTTPException(status_code=409, detail=f"Spot {spot_id} is out of service until {row['oos_to']}")
     cursor = await db.execute(
-        "UPDATE parking_spots SET status = 'occupied', room = ?, is_visitor = ?, date_out = ?, time_out = ? WHERE id = ? AND status = 'available'",
-        ("VISITOR" if data.isVisitor else room, int(data.isVisitor), data.date, data.time, spot_id),
+        """UPDATE parking_spots SET status = 'occupied', room = ?, is_visitor = ?, date_out = ?, time_out = ?,
+           guest_name = ?, plate = ?, car_model = ?, car_colour = ? WHERE id = ? AND status = 'available'""",
+        (
+            "VISITOR" if data.isVisitor else room, int(data.isVisitor), data.date, data.time,
+            data.guestName.strip(), data.plate.strip().upper(), data.carModel.strip(), data.carColour.strip(), spot_id,
+        ),
     )
     if cursor.rowcount == 0:
         raise HTTPException(status_code=409, detail=f"Spot {spot_id} is already taken")
-    return await _logged(db, user, spot_id, f"Checked IN ({'Visitor' if data.isVisitor else 'Room ' + room})")
+    details = _car(await _get_spot(db, spot_id))
+    return await _logged(db, user, spot_id, f"Checked IN ({'Visitor' if data.isVisitor else 'Room ' + room})", details)
 
 
 @router.post("/spots/{spot_id}/checkout")
 async def check_out(spot_id: str, user: TokenData = Depends(require_auth), db: aiosqlite.Connection = Depends(get_db)):
     _require_write(user)
-    await _get_spot(db, spot_id)
+    details = _car(await _get_spot(db, spot_id))
     cursor = await db.execute(
-        "UPDATE parking_spots SET status = 'available', room = '', is_visitor = 0, date_out = '', time_out = '' WHERE id = ? AND status = 'occupied'",
+        """UPDATE parking_spots SET status = 'available', room = '', is_visitor = 0, date_out = '', time_out = '',
+           guest_name = '', plate = '', car_model = '', car_colour = '' WHERE id = ? AND status = 'occupied'""",
         (spot_id,),
     )
     if cursor.rowcount == 0:
         raise HTTPException(status_code=409, detail=f"Spot {spot_id} is already free")
-    return await _logged(db, user, spot_id, "Checked OUT")
+    return await _logged(db, user, spot_id, "Checked OUT", details)
 
 
 @router.post("/spots/{spot_id}/extend")
@@ -126,7 +165,40 @@ async def extend(spot_id: str, data: Extend, user: TokenData = Depends(require_a
     )
     if cursor.rowcount == 0:
         raise HTTPException(status_code=409, detail=f"Spot {spot_id} is free")
-    return await _logged(db, user, spot_id, f"Extended stay to {data.date}")
+    details = _car(await _get_spot(db, spot_id))
+    return await _logged(db, user, spot_id, f"Extended stay to {data.date}", details)
+
+
+@router.post("/spots/{spot_id}/out-of-service")
+async def set_out_of_service(spot_id: str, data: OutOfService, user: TokenData = Depends(require_admin), db: aiosqlite.Connection = Depends(get_db)):
+    try:
+        start = datetime.strptime(data.dateFrom, "%Y-%m-%d").date()
+        end = datetime.strptime(data.dateTo, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="From and To dates required")
+    if start > end:
+        raise HTTPException(status_code=400, detail="The To date must be on or after the From date")
+    if data.dateTo < _today():
+        raise HTTPException(status_code=400, detail="The To date has already passed")
+    await _get_spot(db, spot_id)
+    cursor = await db.execute(
+        "UPDATE parking_spots SET oos_from = ?, oos_to = ? WHERE id = ? AND status = 'available'",
+        (data.dateFrom, data.dateTo, spot_id),
+    )
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=409, detail=f"Check the car out of {spot_id} first")
+    details = {"oosFrom": data.dateFrom, "oosTo": data.dateTo}
+    return await _logged(db, user, spot_id, f"Set out of service ({data.dateFrom} to {data.dateTo})", details)
+
+
+@router.post("/spots/{spot_id}/back-in-service")
+async def back_in_service(spot_id: str, user: TokenData = Depends(require_admin), db: aiosqlite.Connection = Depends(get_db)):
+    row = await _get_spot(db, spot_id)
+    if not row["oos_to"] or row["oos_to"] < _today():
+        raise HTTPException(status_code=409, detail=f"Spot {spot_id} is already in service")
+    details = {"oosFrom": row["oos_from"], "oosTo": row["oos_to"]}
+    await db.execute("UPDATE parking_spots SET oos_from = '', oos_to = '' WHERE id = ?", (spot_id,))
+    return await _logged(db, user, spot_id, "Back in service", details)
 
 
 def _contains(text: str) -> str:
@@ -144,6 +216,14 @@ async def list_log_users(_: TokenData = Depends(require_auth), db: aiosqlite.Con
         ) WHERE name != '' ORDER BY name COLLATE NOCASE
     """)
     return [row["name"] for row in await cursor.fetchall()]
+
+
+def _details(raw):
+    try:
+        value = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 @router.get("/logs")
@@ -170,7 +250,10 @@ async def list_logs(
     cursor = await db.execute(sql + " ORDER BY created_at DESC LIMIT ?", (*params, LOG_LIMIT + 1))
     rows = await cursor.fetchall()
     items = [
-        {"id": r["id"], "actor": r["actor"], "action": r["action"], "spotId": r["spot_id"], "date": r["date"], "time": r["time"]}
+        {
+            "id": r["id"], "actor": r["actor"], "action": r["action"], "spotId": r["spot_id"],
+            "date": r["date"], "time": r["time"], "details": _details(r["details_json"]),
+        }
         for r in rows[:LOG_LIMIT]
     ]
     return {"items": items, "more": len(rows) > LOG_LIMIT}

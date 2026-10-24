@@ -10,6 +10,7 @@ from app.auth import create_access_token, get_password_hash
 PASSWORD_HASH = get_password_hash("parking-test")
 
 USERS = {
+    "admin": ("usr_admin", "admin.user", "Ada", "Admin", "General Manager", "admin"),
     "staff": ("usr_staff", "staff.user", "Sam", "Staff", "Duty Manager", "staff"),
     "parking": ("usr_park", "park.user", "Rana", "Desk", "Parking Attendant", "parking"),
     "night": ("usr_night", "night.user", "Nora", "Night", "Night Manager", "night"),
@@ -164,8 +165,84 @@ def test_user_filter_lists_every_user_and_past_actors(api):
     con.commit()
     con.close()
     names = client.get("/api/parking/users", headers=_headers("guest")).json()
-    assert names == ["Gina Guest", "Nora Night", "Rana Desk", "Sam Staff"]
+    assert names == ["Ada Admin", "Gina Guest", "Nora Night", "Rana Desk", "Sam Staff"]
     assert client.get("/api/parking/users").status_code == 401
+
+
+CAR = {"guestName": "Omar Saleh", "plate": "abc 1234", "carModel": "Toyota Camry", "carColour": "Silver"}
+
+
+def test_car_details_are_kept_on_the_spot_and_in_every_log(api):
+    client, _ = api
+    h = _headers("staff")
+    spot = client.post("/api/parking/spots/B2-5/checkin", json={**CHECKIN, **CAR}, headers=h).json()
+    assert (spot["guestName"], spot["plate"], spot["carModel"], spot["carColour"]) == ("Omar Saleh", "ABC 1234", "Toyota Camry", "Silver")
+    client.post("/api/parking/spots/B2-5/extend", json={"date": "2026-10-27", "time": "09:00"}, headers=h)
+    freed = client.post("/api/parking/spots/B2-5/checkout", headers=h).json()
+    assert freed["guestName"] == "" and freed["plate"] == ""
+    out, extended, came_in = client.get("/api/parking/logs", headers=h).json()["items"]
+    for log in (out, extended, came_in):
+        assert log["details"]["plate"] == "ABC 1234" and log["details"]["room"] == "101"
+    assert came_in["details"]["dateOut"] == "2026-10-24"
+    assert extended["details"]["dateOut"] == "2026-10-27"
+    assert out["details"]["guestName"] == "Omar Saleh"
+
+
+def _oos(client, spot, start, end, who="admin"):
+    return client.post(f"/api/parking/spots/{spot}/out-of-service", json={"dateFrom": start, "dateTo": end}, headers=_headers(who))
+
+
+def test_only_admin_can_put_a_spot_out_of_service(api):
+    client, _ = api
+    import app.routes.parking as parking
+    today = parking._today()
+    assert _oos(client, "B2-8", today, "2099-01-01", who="staff").status_code == 403
+    spot = _oos(client, "B2-8", today, "2099-01-01").json()
+    assert (spot["oosFrom"], spot["oosTo"]) == (today, "2099-01-01")
+    res = client.post("/api/parking/spots/B2-8/checkin", json=CHECKIN, headers=_headers("staff"))
+    assert res.status_code == 409 and "out of service" in res.json()["detail"]
+    assert client.post("/api/parking/spots/B2-8/back-in-service", headers=_headers("staff")).status_code == 403
+    assert client.post("/api/parking/spots/B2-8/back-in-service", headers=_headers("admin")).json()["oosTo"] == ""
+    assert client.post("/api/parking/spots/B2-8/checkin", json=CHECKIN, headers=_headers("staff")).status_code == 200
+    actions = [log["action"] for log in client.get("/api/parking/logs", params={"spot": "B2-8"}, headers=_headers("admin")).json()["items"]]
+    assert actions == ["Checked IN (Room 101)", "Back in service", f"Set out of service ({today} to 2099-01-01)"]
+
+
+def test_out_of_service_dates_are_checked(api):
+    client, _ = api
+    assert _oos(client, "B2-8", "2099-01-05", "2099-01-01").status_code == 400
+    assert _oos(client, "B2-8", "2000-01-01", "2000-01-02").status_code == 400
+    assert _oos(client, "B2-8", "", "").status_code == 400
+    client.post("/api/parking/spots/B2-9/checkin", json=CHECKIN, headers=_headers("staff"))
+    assert _oos(client, "B2-9", "2099-01-01", "2099-01-02").status_code == 409
+
+
+def test_a_future_out_of_service_window_still_allows_check_in(api):
+    client, _ = api
+    _oos(client, "B3-1", "2099-01-01", "2099-01-02")
+    assert client.post("/api/parking/spots/B3-1/checkin", json=CHECKIN, headers=_headers("staff")).status_code == 200
+
+
+def test_old_parking_tables_get_the_new_columns(tmp_path, monkeypatch):
+    data = tmp_path / "data"
+    data.mkdir()
+    con = sqlite3.connect(data / "novotel.db")
+    con.execute("CREATE TABLE parking_spots (id TEXT PRIMARY KEY, floor TEXT NOT NULL, number INTEGER NOT NULL, size TEXT NOT NULL DEFAULT 'L', is_handicap INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'available', room TEXT NOT NULL DEFAULT '', is_visitor INTEGER NOT NULL DEFAULT 0, date_out TEXT NOT NULL DEFAULT '', time_out TEXT NOT NULL DEFAULT '')")
+    con.execute("CREATE TABLE parking_logs (id TEXT PRIMARY KEY, actor TEXT NOT NULL, action TEXT NOT NULL, spot_id TEXT NOT NULL DEFAULT '-', date TEXT NOT NULL, time TEXT NOT NULL, created_at TEXT NOT NULL)")
+    con.execute("INSERT INTO parking_spots (id, floor, number, status, room) VALUES ('B2-1', 'B2', 1, 'occupied', '707')")
+    con.commit()
+    con.close()
+    monkeypatch.setenv("DATA_DIR", str(data))
+    import app.database as database
+    importlib.reload(database)
+    asyncio.run(database.init_db())
+    con = sqlite3.connect(data / "novotel.db")
+    spot_cols = {r[1] for r in con.execute("PRAGMA table_info(parking_spots)")}
+    log_cols = {r[1] for r in con.execute("PRAGMA table_info(parking_logs)")}
+    assert {"guest_name", "plate", "car_model", "car_colour", "oos_from", "oos_to"} <= spot_cols
+    assert "details_json" in log_cols
+    assert con.execute("SELECT room FROM parking_spots WHERE id = 'B2-1'").fetchone()[0] == "707"
+    con.close()
 
 
 def test_changes_are_broadcast(api, monkeypatch):
