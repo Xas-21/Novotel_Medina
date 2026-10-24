@@ -1551,7 +1551,8 @@
   }
 
   function kpiCompact(card){
-    return `<div class="kpi-card kpi-compact"><div class="kpi-label">${escapeHtml(card.label)}</div>${kpiFigure(card, 'kpi-figure kpi-figure-sm')}<div class="kpi-note">${escapeHtml(card.note || '')}</div></div>`;
+    const fill = card.fill ? ` kpi-filled" style="background:${card.fill};border-color:${card.fill}` : '';
+    return `<div class="kpi-card kpi-compact${fill}"><div class="kpi-label">${escapeHtml(card.label)}</div>${kpiFigure(card, 'kpi-figure kpi-figure-sm')}<div class="kpi-note">${escapeHtml(card.note || '')}</div></div>`;
   }
 
   function kpiPair(card){
@@ -1666,33 +1667,42 @@
     doc.text(String(text), x, y, opts || {});
   }
 
-  function pdfKpiFigure(doc, card, x, y, size){
+  function pdfKpiFigure(doc, card, x, y, size, centerWidth){
     const shown = card.value == null || card.value === '' ? '—' : String(card.value);
     const color = pdfRgb(card.color || KPI_TONES[card.tone] || KPI_TONES.indigo);
-    pdfKpiText(doc, shown, x, y, size, color, 'bold');
-    if (card.unit && shown !== '—') {
-      const width = doc.getTextWidth(shown);
-      pdfKpiText(doc, card.unit, x + width + 3, y, size * 0.42, [100, 116, 139], 'bold');
+    const hasUnit = card.unit && shown !== '—';
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(size);
+    const width = doc.getTextWidth(shown);
+    let left = x;
+    if (centerWidth) {
+      doc.setFontSize(size * 0.42);
+      const unitWidth = hasUnit ? doc.getTextWidth(card.unit) + 3 : 0;
+      left = x + (centerWidth - width - unitWidth) / 2;
+    }
+    pdfKpiText(doc, shown, left, y, size, color, 'bold');
+    if (hasUnit) {
+      pdfKpiText(doc, card.unit, left + width + 3, y, size * 0.42, [100, 116, 139], 'bold');
     }
   }
 
-  function pdfKpiNote(doc, text, x, y, width, size, lines){
+  function pdfKpiNote(doc, text, x, y, width, size, lines, color){
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(size);
     const wrapped = doc.splitTextToSize(String(text || ''), width).slice(0, lines);
-    doc.setTextColor(100, 116, 139);
+    doc.setTextColor(...(color || [100, 116, 139]));
     doc.text(wrapped, x, y);
   }
 
-  function pdfKpiCard(doc, x, y, w, h){
-    doc.setFillColor(255, 255, 255);
-    doc.setDrawColor(226, 232, 240);
+  function pdfKpiCard(doc, x, y, w, h, fill){
+    doc.setFillColor(...(fill || [255, 255, 255]));
+    doc.setDrawColor(...(fill || [226, 232, 240]));
     doc.setLineWidth(0.6);
     doc.roundedRect(x, y, w, h, 5, 5, 'FD');
   }
 
-  function pdfKpiDivider(doc, x, y, w){
-    doc.setDrawColor(241, 245, 249);
+  function pdfKpiDivider(doc, x, y, w, color){
+    doc.setDrawColor(...(color || [241, 245, 249]));
     doc.setLineWidth(0.7);
     doc.line(x, y, x + w, y);
   }
@@ -1710,15 +1720,16 @@
   }
 
   function pdfKpiCompact(doc, card, x, y, w, h){
-    pdfKpiCard(doc, x, y, w, h);
+    const fill = card.fill ? pdfRgb(card.fill) : null;
+    pdfKpiCard(doc, x, y, w, h, fill);
     const pad = 9;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.3);
-    doc.setTextColor(30, 41, 59);
+    doc.setTextColor(...(fill ? [255, 255, 255] : [30, 41, 59]));
     doc.text(doc.splitTextToSize(card.label, w - pad * 2).slice(0, 1), x + pad, y + 14);
-    pdfKpiFigure(doc, card, x + pad, y + 34, 15);
-    pdfKpiDivider(doc, x + pad, y + 42, w - pad * 2);
-    pdfKpiNote(doc, card.note, x + pad, y + 51, w - pad * 2, 6, 2);
+    pdfKpiFigure(doc, card, x + pad, y + 34, 15, w - pad * 2);
+    pdfKpiDivider(doc, x + pad, y + 42, w - pad * 2, fill ? fill.map(c => Math.round(c + (255 - c) * 0.35)) : null);
+    pdfKpiNote(doc, card.note, x + pad, y + 51, w - pad * 2, 6, 2, fill ? [245, 245, 245] : null);
   }
 
   function pdfKpiPair(doc, card, x, y, w, h){
@@ -1752,11 +1763,11 @@
       doc.setDrawColor(...side.line);
       doc.setLineWidth(0.6);
       doc.roundedRect(bx, boxY, boxW, boxH, 4, 4, 'FD');
-      pdfKpiText(doc, kpiNumber(side.value), bx + 7, boxY + 16, 13, side.ink, 'bold');
+      pdfKpiText(doc, kpiNumber(side.value), bx + boxW / 2, boxY + 16, 13, side.ink, 'bold', { align: 'center' });
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6);
       doc.setTextColor(71, 85, 105);
-      doc.text(doc.splitTextToSize(String(side.label || ''), boxW - 12).slice(0, 2), bx + 7, boxY + 27);
+      doc.text(doc.splitTextToSize(String(side.label || ''), boxW - 12).slice(0, 2), bx + boxW / 2, boxY + 27, { align: 'center' });
     });
     pdfKpiDivider(doc, x + pad, y + 71, w - pad * 2);
     const barX = x + pad;

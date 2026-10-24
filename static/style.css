@@ -723,6 +723,10 @@ h1, h2, h3 {
   color: #64748b;
 }
 .kpi-compact .kpi-note { padding-top: 8px; font-size: 11px; }
+.kpi-compact .kpi-figure { text-align: center; }
+.kpi-side { text-align: center; }
+.kpi-filled .kpi-label { color: #fff; }
+.kpi-filled .kpi-note { color: rgba(255,255,255,0.88); border-top-color: rgba(255,255,255,0.28); }
 .kpi-pair-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
 .kpi-pair-title { font-size: 14px; font-weight: 700; color: #1e293b; }
 .kpi-pair-pct { font-size: 12px; font-weight: 600; color: #64748b; font-variant-numeric: tabular-nums; white-space: nowrap; }

@@ -1445,7 +1445,14 @@
         { label: 'Not satisfied guests', value: n(stats.guestNotSatisfied || 0), tone: 'amber', note: stats.guestNotSatisfied ? 'Marked not satisfied by Guest Relation' : 'No dissatisfied guest reports' },
         { label: 'Urgent guest actions', value: n(stats.guestUrgent || 0), tone: 'crimson', note: stats.guestUrgent ? 'Guest rows marked urgent' : 'No urgent escalations' },
         { label: 'Avg departure score', value: has(stats.guestDeparture) ? stats.guestDeparture : '—', tone: 'teal', note: has(stats.guestDeparture) ? 'Departure courtesy call score' : 'No departure surveys recorded' }
-      ] }
+      ] },
+      { title: 'Parking Status Right Now', kind: 'compact', cards: stats.parking ? [
+        { label: 'Available', value: n(stats.parking.available), color: '#FFFFFF', fill: '#4F7A5B', note: 'Free spots ready for a car' },
+        { label: 'Occupied', value: n(stats.parking.occupied), color: '#FFFFFF', fill: '#B14B3F', note: 'Cars in, not due out today' },
+        { label: 'Due out', value: n(stats.parking['due-today']), color: '#FFFFFF', fill: '#C4813C', note: 'Cars expected to leave today' },
+        { label: 'Overdue', value: n(stats.parking.overdue), color: '#FFFFFF', fill: '#5E1F1A', note: 'Past the expected checkout time' },
+        { label: 'Out of service', value: n(stats.parking['out-of-service']), color: '#FFFFFF', fill: '#8A9099', note: 'Spots closed by an admin' }
+      ] : [] }
     ];
   }
 
@@ -1525,15 +1532,17 @@
     const body = document.getElementById('fullBody');
     if (!body) return;
     const range = { from: state.periodFrom, to: state.periodTo };
-    const [duty, night, guest] = await Promise.all([
+    const [duty, night, guest, spots] = await Promise.all([
       window.apiFetch('/api/reports/analysis?' + window.periodQuery()),
       window.apiFetch('/api/night/analysis?' + window.periodQuery()),
-      window.apiFetch('/api/guest/analysis?' + window.periodQuery())
+      window.apiFetch('/api/guest/analysis?' + window.periodQuery()),
+      window.apiFetch('/api/parking/spots')
     ]);
     const index = await window.apiFetch('/api/reports/index');
     relabel(night);
     if (!document.getElementById('fullBody')) return;
     const stats = dashboardStats(duty, night, index || [], range.from, range.to, guest);
+    stats.parking = Array.isArray(spots) && window.parkingCounts ? window.parkingCounts(spots) : null;
     const revenue = stats.revenue;
     fullPack = { duty: duty, night: night, guest: guest, index: index || [], from: range.from, to: range.to, stats: stats };
     window.currentDutyAnalysis = duty;

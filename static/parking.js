@@ -53,7 +53,7 @@
       <div class="parking-legend">
         <span><i class="parking-swatch available"></i>Available</span>
         <span><i class="parking-swatch occupied"></i>Occupied</span>
-        <span><i class="parking-swatch due-today"></i>Checks out today</span>
+        <span><i class="parking-swatch due-today"></i>Due out today</span>
         <span><i class="parking-swatch overdue"></i>Overdue (past checkout time)</span>
         <span><i class="parking-swatch out-of-service"></i>Out of service</span>
         <span><i class="parking-swatch handicap"></i>Accessible ♿</span>
@@ -450,6 +450,13 @@
     if (state && state.section === 'parking' && state.view !== 'logs') paintSpots();
   }, 60000);
 
+  function parkingCounts(list){
+    const counts = { available: 0, occupied: 0, 'due-today': 0, overdue: 0, 'out-of-service': 0 };
+    (list || []).forEach(spot => { counts[spotClass(spot)] += 1; });
+    return counts;
+  }
+
+  window.parkingCounts = parkingCounts;
   window.renderParkingSection = renderParkingSection;
   window.onParkingUpdate = onParkingUpdate;
 })();
