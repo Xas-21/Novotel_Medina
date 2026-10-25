@@ -1475,8 +1475,8 @@
       <div class="period-home"><div class="dmr-period" id="periodBar">
         <div class="dmr-toolbar">
           ${button('today', 'Today')}
-          ${button('week', 'Week')}
-          ${button('month', 'Month')}
+          ${button('week', 'WTD')}
+          ${button('month', 'MTD')}
           ${button('ytd', 'YTD')}
         </div>
         <div class="dmr-row period-dates">
