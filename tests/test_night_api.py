@@ -1,6 +1,7 @@
 import asyncio
 import importlib
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -465,6 +466,15 @@ def test_analysis_totals_rooms_sold_and_occupancy(api):
     assert month["roomsSold"] == 335
     assert month["filedNights"] == 2
     assert month["avgOccupancy"] == round(335 / (394 * 2) * 100, 1)
+    assert date(2026, 10, 6).weekday() == 1
+    assert date(2026, 10, 8).weekday() == 3
+    assert month["weekdayOccupancy"] == round(100 / 394 * 100, 1)
+    assert month["weekendOccupancy"] == round(235 / 394 * 100, 1)
+    tuesday_adr = money(83561.14 / 100)
+    thursday_adr = money(83561.14 / 235)
+    assert month["weekdayAdr"] == tuesday_adr
+    assert month["weekendAdr"] == thursday_adr
+    assert month["avgAdr"] == money((tuesday_adr + thursday_adr) / 2)
     assert month["grandTotal"] == money(2 * (83561.14 + 12833.52 + 406.96))
 
 

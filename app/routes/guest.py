@@ -348,6 +348,9 @@ async def guest_analysis(
     priority_by_section = {name: {level: 0 for level in levels} for name in sections}
     satisfaction = {"Satisfied": 0, "Non Satisfied": 0, "Have Comment": 0}
     membership_totals = {name: {"arrival": 0, "inHouse": 0, "departure": 0} for name in TIERS}
+    section_names = {"preArrival": "Pre-arrival", "inHouse": "In-house", "departure": "Departure"}
+    priority_lists = {level: [] for level in ("Normal", "Mid", "Urgent")}
+    not_satisfied_list = []
     vip_arrivals, vip_departures, vip_occ_series = [], [], []
     departure_series, employee_series = [], []
     cursor_day = start_day
@@ -370,6 +373,7 @@ async def guest_analysis(
             for item in body.get(bucket) or []:
                 if isinstance(item, dict) and item.get("priority") in levels:
                     priority_by_section[bucket][item["priority"]] += 1
+                    priority_lists[item["priority"]].append({"date": iso, "section": section_names[bucket], **item})
                     if item.get("priority") == "Urgent":
                         urgent += 1
         for item in body.get("membership") or []:
@@ -384,6 +388,7 @@ async def guest_analysis(
                 welcome += 1
                 if item.get("satisfaction") == "Non Satisfied":
                     not_satisfied += 1
+                    not_satisfied_list.append({"date": iso, **item})
                 if item.get("satisfaction") in satisfaction:
                     satisfaction[item["satisfaction"]] += 1
                 if item.get("contacted") in channels:
@@ -423,6 +428,10 @@ async def guest_analysis(
         "departureCalls": departure_calls,
         "notSatisfied": not_satisfied,
         "urgent": urgent,
+        "urgentList": priority_lists["Urgent"],
+        "midList": priority_lists["Mid"],
+        "normalList": priority_lists["Normal"],
+        "notSatisfiedList": not_satisfied_list,
         "avgDeparture": round(sum(scores) / len(scores), 1) if scores else None,
         "avgEmployee": round(sum(employee) / len(employee), 1) if employee else None,
         "avgVipOcc": round(sum(vip_occ_values) / len(vip_occ_values), 1) if vip_occ_values else None,

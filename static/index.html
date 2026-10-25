@@ -4,7 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Novotel Medina - Daily Reports</title>
-  <link rel="stylesheet" href="/assets/style.css?v=36">
+  <script>document.documentElement.dataset.theme = localStorage.getItem('novotel_theme') === 'dark' ? 'dark' : 'light';</script>
+  <link rel="stylesheet" href="/assets/style.css?v=53">
   <link rel="icon" href="/assets/novotel-logo-blue.png">
 </head>
 <body>
@@ -33,16 +34,45 @@
   <!-- Main App -->
   <div class="dmr-root" id="dmrRoot" style="display:none;">
     <header class="dmr-topbar">
-      <span class="topbar-mark"><img src="/assets/novotel-logo-blue.png" class="topbar-logo" alt="Novotel"></span>
-      <span id="mobileCrumb">Today's Report</span>
-      <button type="button" id="menuBtn" aria-expanded="false" aria-controls="dmrNav">Menu</button>
+      <button type="button" id="menuBtn" class="topbar-icon" aria-expanded="false" aria-controls="dmrNav" aria-label="Menu" title="Menu">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <img src="/assets/novotel-logo-blue.png" class="topbar-logo" alt="Novotel">
+      <span class="topbar-divider" aria-hidden="true"></span>
+      <span id="mobileCrumb" class="topbar-title">Dashboard</span>
+      <div class="topbar-period" id="topbarPeriod"></div>
+      <button type="button" id="themeBtn" class="topbar-icon topbar-theme" aria-pressed="false" aria-label="Dark theme" title="Dark theme">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="13.5" cy="6.5" r="1"/><circle cx="17.5" cy="10.5" r="1"/><circle cx="8.5" cy="7.5" r="1"/><circle cx="6.5" cy="12.5" r="1"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.93 0 1.65-.75 1.65-1.69 0-.44-.18-.84-.44-1.13-.29-.29-.44-.65-.44-1.13a1.64 1.64 0 0 1 1.67-1.67h2c3.05 0 5.55-2.5 5.55-5.55C21.97 6.01 17.46 2 12 2z"/></svg>
+      </button>
+      <div class="topbar-profile">
+        <button type="button" id="profileBtn" class="profile-chip" aria-haspopup="menu" aria-expanded="false" aria-controls="profileMenu">
+          <span class="profile-avatar" id="profileAvatar" aria-hidden="true">?</span>
+          <span class="profile-text"><span class="profile-name" id="navName">—</span><span class="profile-role" id="navTitle"></span></span>
+          <svg class="ico profile-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="profile-menu" id="profileMenu" role="menu" hidden>
+          <button type="button" role="menuitem" id="logoutBtn">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+            Logout
+          </button>
+        </div>
+      </div>
     </header>
     <button type="button" class="dmr-backdrop" id="navBackdrop" hidden aria-label="Close menu"></button>
     <nav class="dmr-nav" id="dmrNav" aria-label="Sections">
-      <button type="button" class="nav-close" id="navClose">Close</button>
-      <div class="brand">
-        <img src="/assets/novotel-logo-blue.png" class="brand-logo" alt="Novotel">
+      <div class="nav-head">
+        <img src="/assets/novotel-logo-blue.png" class="nav-logo" alt="Novotel">
+        <button type="button" class="nav-pin" id="navPin" aria-pressed="true" aria-label="Keep menu open" title="Keep menu open">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+        </button>
+        <button type="button" class="nav-close" id="navClose" aria-label="Close menu" title="Close menu">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
 
+      <div class="nav-welcome">
+        <span>Welcome</span>
+        <strong id="navWelcome">Hi</strong>
       </div>
 
       <div class="sync-status">
@@ -50,34 +80,26 @@
         <span id="syncText">Connected</span>
       </div>
 
-      <button class="dmr-navbtn" data-section="full" data-view="today">Dashboard</button>
+      <button class="dmr-navbtn" data-section="full" data-view="today"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>Dashboard</button>
 
       <div class="nav-section" data-nav-for="duty">Duty Manager</div>
-      <button class="dmr-navbtn" data-section="duty" data-view="today">Today's Report</button>
-      <button class="dmr-navbtn" data-section="duty" data-view="archive">Archive</button>
-      <button class="dmr-navbtn" data-section="duty" data-view="analysis">Analysis</button>
+      <button class="dmr-navbtn" data-section="duty" data-view="today"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M12 11h4M12 16h4M8 11h.01M8 16h.01"/></svg>Today's Report</button>
+      <button class="dmr-navbtn" data-section="duty" data-view="archive"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4"/></svg>Archive</button>
+      <button class="dmr-navbtn" data-section="duty" data-view="analysis"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18M18 17V9M13 17V5M8 17v-3"/></svg>Analysis</button>
       <div class="nav-section" data-nav-for="night">Night Manager</div>
-      <button class="dmr-navbtn" data-section="night" data-view="today">Today's Report</button>
-      <button class="dmr-navbtn" data-section="night" data-view="archive">Archive</button>
-      <button class="dmr-navbtn" data-section="night" data-view="analysis">Analysis</button>
+      <button class="dmr-navbtn" data-section="night" data-view="today"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M12 11h4M12 16h4M8 11h.01M8 16h.01"/></svg>Today's Report</button>
+      <button class="dmr-navbtn" data-section="night" data-view="archive"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4"/></svg>Archive</button>
+      <button class="dmr-navbtn" data-section="night" data-view="analysis"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18M18 17V9M13 17V5M8 17v-3"/></svg>Analysis</button>
       <div class="nav-section" data-nav-for="guest">Guest Relation</div>
-      <button class="dmr-navbtn" data-section="guest" data-view="today">Today's Report</button>
-      <button class="dmr-navbtn" data-section="guest" data-view="archive">Archive</button>
-      <button class="dmr-navbtn" data-section="guest" data-view="analysis">Analysis</button>
+      <button class="dmr-navbtn" data-section="guest" data-view="today"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2M12 11h4M12 16h4M8 11h.01M8 16h.01"/></svg>Today's Report</button>
+      <button class="dmr-navbtn" data-section="guest" data-view="archive"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8M10 12h4"/></svg>Archive</button>
+      <button class="dmr-navbtn" data-section="guest" data-view="analysis"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18M18 17V9M13 17V5M8 17v-3"/></svg>Analysis</button>
       <div class="nav-section" data-nav-for="parking">Parkings</div>
-      <button class="dmr-navbtn" data-section="parking" data-view="manage">Manage Parkings</button>
-      <button class="dmr-navbtn" data-section="parking" data-view="logs">Activity Logs</button>
+      <button class="dmr-navbtn" data-section="parking" data-view="manage"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2M9 17h6"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>Manage Parkings</button>
+      <button class="dmr-navbtn" data-section="parking" data-view="logs"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Activity Logs</button>
       <div class="nav-section" data-nav-for="general">General</div>
-      <button class="dmr-navbtn" data-view="users" id="usersNavBtn" style="display:none;">Users</button>
-      <button class="dmr-navbtn" data-view="settings" id="settingsNavBtn" style="display:none;">Settings</button>
-
-      <div class="dmr-nav-foot">
-        <div id="navNameBlock">
-          <span class="nav-name" id="navName">—</span>
-          <span class="nav-title" id="navTitle"></span>
-        </div>
-        <button id="logoutBtn">Logout</button>
-      </div>
+      <button class="dmr-navbtn" data-view="users" id="usersNavBtn" style="display:none;"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/><circle cx="9" cy="7" r="4"/></svg>Users</button>
+      <button class="dmr-navbtn" data-view="settings" id="settingsNavBtn" style="display:none;"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>Settings</button>
     </nav>
 
     <div class="dmr-main" id="dmrMain"></div>
@@ -90,9 +112,9 @@
   <script src="/assets/jspdf.umd.min.js"></script>
   <script src="/assets/chart.umd.min.js"></script>
   <script src="/assets/routes.js?v=3"></script>
-  <script src="/assets/app.js?v=48"></script>
-  <script src="/assets/night.js?v=53"></script>
-  <script src="/assets/guest.js?v=28"></script>
-  <script src="/assets/parking.js?v=7"></script>
+  <script src="/assets/app.js?v=64"></script>
+  <script src="/assets/night.js?v=70"></script>
+  <script src="/assets/guest.js?v=29"></script>
+  <script src="/assets/parking.js?v=9"></script>
 </body>
 </html>

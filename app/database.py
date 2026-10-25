@@ -209,9 +209,11 @@ async def init_db():
         )
         """)
         spot_cols = [r[1] for r in await (await db.execute("PRAGMA table_info(parking_spots)")).fetchall()]
-        for name in ("guest_name", "plate", "car_model", "car_colour", "oos_from", "oos_to"):
+        for name in ("guest_name", "plate", "car_model", "car_colour", "oos_from", "oos_to", "position"):
             if name not in spot_cols:
                 await db.execute(f"ALTER TABLE parking_spots ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
+        if "is_hod" not in spot_cols:
+            await db.execute("ALTER TABLE parking_spots ADD COLUMN is_hod INTEGER NOT NULL DEFAULT 0")
         log_cols = [r[1] for r in await (await db.execute("PRAGMA table_info(parking_logs)")).fetchall()]
         if "details_json" not in log_cols:
             await db.execute("ALTER TABLE parking_logs ADD COLUMN details_json TEXT NOT NULL DEFAULT '{}'")

@@ -161,19 +161,17 @@
 
   function renderNightSection(){
     const state = window.state;
-    if (!state) return '<h1>Night Manager</h1>';
+    if (!state) return '';
     if (state.section === 'full') {
       queueMicrotask(loadFullReport);
       return `
-        <div class="dmr-headline"><h1>Dashboard</h1></div>
         ${window.periodBar ? window.periodBar() : ''}
         <div id="fullBody"><div class="dmr-empty"><h3>Loading full report…</h3></div></div>`;
     }
-    if (state.section !== 'night') return '<h1>Night Manager</h1>';
+    if (state.section !== 'night') return '';
     if (state.view === 'archive') {
       queueMicrotask(loadNightArchive);
       return `
-        <div class="dmr-headline"><h1>Night Archive</h1></div>
         <div class="dmr-sub">Night manager reports by month</div>
         <input type="date" id="archiveSearch" class="dmr-btn dmr-btn-ghost" style="padding:7px 12px;margin-bottom:12px;">
         <div id="archiveList"><div class="dmr-card"><div class="dmr-empty">Loading archive…</div></div></div>`;
@@ -181,12 +179,11 @@
     if (state.view === 'analysis') {
       queueMicrotask(loadNightAnalysis);
       return `
-        <div class="dmr-headline"><h1>Night Analysis</h1></div>
         <div class="dmr-sub">Pick a day, a week, a month, the year to date, or any from and to dates</div>
         ${window.periodBar ? window.periodBar() : ''}
         <div id="nightAnalysisBody"><div class="dmr-empty"><h3>Loading night analysis…</h3></div></div>`;
     }
-    if (state.view !== 'today') return '<h1>Night Manager</h1>';
+    if (state.view !== 'today') return '';
     const date = state.selectedDate;
     const token = ++loadToken;
     queueMicrotask(() => {
@@ -195,8 +192,7 @@
     });
     return `
       <div class="dmr-headline">
-        <h1>Night Manager Report</h1>
-        <input type="date" id="dateInput" class="dmr-btn-ghost dmr-btn" style="padding:7px 12px;" value="${escapeHtml(date)}">
+        <input type="date" id="dateInput" class="dmr-btn-ghost dmr-btn" style="padding:7px 12px;margin-left:auto;" value="${escapeHtml(date)}">
       </div>
       <div class="dmr-sub">${escapeHtml(fmtDate(date))}</div>
       <div id="nightBody"><div class="dmr-empty"><h3>Loading night report…</h3></div></div>`;
@@ -471,6 +467,29 @@
     }
     const delPhoto = t.closest('[data-chk-photo-del]');
     if (delPhoto) { e.preventDefault(); deleteNightCheckPhoto(delPhoto); return; }
+    const itemNoteAdd = t.closest('[data-chk-note-add], [data-dyn-note-add]');
+    if (itemNoteAdd) { e.preventDefault(); editNightNotes(itemNoteAdd, null); return; }
+    const itemNoteDel = t.closest('[data-chk-note-del], [data-dyn-note-del]');
+    if (itemNoteDel) { e.preventDefault(); editNightNotes(itemNoteDel, parseInt(itemNoteDel.dataset.chkNoteDel || itemNoteDel.dataset.dynNoteDel, 10)); return; }
+    const dynPhotoAdd = t.closest('[data-dyn-photo-add]');
+    if (dynPhotoAdd) {
+      e.preventDefault();
+      const dynRow = dynPhotoAdd.closest('[data-dyn-list]');
+      window.state.photoTarget = ['dyn', dynRow.dataset.dynList, dynRow.dataset.dynIdx];
+      const input = document.getElementById('checklistPhotoInput');
+      if (input) input.click();
+      return;
+    }
+    const dynPhotoDel = t.closest('[data-dyn-photo-del]');
+    if (dynPhotoDel) {
+      e.preventDefault();
+      syncDraftFromDom();
+      const item = nightNoteTarget(dynPhotoDel);
+      if (item && item.photos) item.photos.splice(parseInt(dynPhotoDel.dataset.dynPhotoDel, 10), 1);
+      paint();
+      queueNightSave();
+      return;
+    }
     const dynToggle = t.closest('[data-dyn-toggle]');
     if (dynToggle) { e.preventDefault(); toggleNightDyn(dynToggle); return; }
     const dynDel = t.closest('[data-dyn-del]');
@@ -493,6 +512,30 @@
     if (!pack) return null;
     if (secKey === 'cafeteriaItems') return pack.cafeteriaItems;
     return pack.checklists && pack.checklists[secKey];
+  }
+
+  function nightNoteTarget(el) {
+    const chkRow = el.closest('[data-chk-section]');
+    if (chkRow) {
+      const arr = inspectionList(chkRow.dataset.chkSection);
+      return arr && arr[parseInt(chkRow.dataset.chkIdx, 10)];
+    }
+    const dynRow = el.closest('[data-dyn-list]');
+    const list = dynRow && draft.inspection && draft.inspection[dynRow.dataset.dynList];
+    return list && list[parseInt(dynRow.dataset.dynIdx, 10)];
+  }
+
+  function editNightNotes(btn, removeIndex) {
+    if (editingLocked() || !draft || !draft.inspection) return;
+    syncDraftFromDom();
+    const item = nightNoteTarget(btn);
+    if (!item) return;
+    const lines = String(item.comment || '').split('\n');
+    if (removeIndex == null) lines.push('');
+    else lines.splice(removeIndex, 1);
+    item.comment = lines.join('\n');
+    paint();
+    queueNightSave();
   }
 
   function toggleNightCheck(btn) {
@@ -613,8 +656,13 @@
   async function applyNightChecklistPhoto(file, target) {
     if (editingLocked() || !draft || !draft.inspection || !target || !window.uploadDutyPhoto) return;
     syncDraftFromDom();
-    const arr = inspectionList(target[0]);
-    const item = arr && arr[parseInt(target[1], 10)];
+    let item;
+    if (target[0] === 'dyn') {
+      item = (draft.inspection[target[1]] || [])[parseInt(target[2], 10)];
+    } else {
+      const arr = inspectionList(target[0]);
+      item = arr && arr[parseInt(target[1], 10)];
+    }
     if (!item) return;
     if (!item.photos) item.photos = [];
     if (item.photos.length >= 2) { showNote('Maximum 2 photos per item'); return; }
@@ -701,8 +749,8 @@
       const idx = parseInt(row.dataset.chkIdx, 10);
       const arr = sec === 'cafeteriaItems' ? pack.cafeteriaItems : (pack.checklists && pack.checklists[sec]);
       if (!arr || !arr[idx]) return;
-      const comment = row.querySelector('[data-chk-comment]');
-      if (comment) arr[idx].comment = comment.value;
+      const notes = row.querySelectorAll('[data-chk-note]');
+      if (notes.length) arr[idx].comment = Array.from(notes).map(el => el.value).join('\n');
     });
     const meal = form.querySelector('[data-night-meal]');
     if (meal) pack.cafeteriaMealTime = meal.value;
@@ -715,6 +763,8 @@
       row.querySelectorAll('[data-dyn-field]').forEach(inp => {
         dataRow[inp.dataset.dynField] = inp.value;
       });
+      const notes = row.querySelectorAll('[data-dyn-note]');
+      if (notes.length) dataRow.comment = Array.from(notes).map(el => el.value).join('\n');
     });
     form.querySelectorAll('[data-night-note-status]').forEach(sel => {
       const note = (pack.notes || []).find(n => n.id === sel.dataset.nightNoteStatus);
@@ -1275,6 +1325,7 @@
     }));
     y += 12;
     const analysis = await window.apiFetch('/api/night/analysis?date=' + encodeURIComponent(date) + '&range=month');
+    if (analysis && window.NovotelPdf) y = pdf.pdfKpiBoard(doc, W, y, nightTiers(analysis));
     y = await appendNightAnalysisCharts(doc, W, y, analysis);
     const gap = data.segmentGap || {};
     const segmentRows = (data.segments || []).map(seg => ({CODE: seg.code, ROOMS: String(seg.rooms ?? '')}));
@@ -1394,8 +1445,9 @@
     const nightFiled = nightRaw.filter(value => value != null).length;
     const nightMissing = Math.max(0, nightRaw.length - nightFiled);
     const revenue = (night && night.revenue) || {};
-    const adrValues = ((night && night.adr) || []).filter(value => value != null);
-    const avgAdr = adrValues.length ? Math.round(adrValues.reduce((sum, value) => sum + Number(value), 0) / adrValues.length) : null;
+    const revparValues = ((night && night.revpar) || []).filter(value => value != null);
+    const avgRevpar = revparValues.length ? Math.round(revparValues.reduce((sum, value) => sum + Number(value), 0) / revparValues.length) : null;
+    const avgAdr = night && night.avgAdr != null ? night.avgAdr : null;
     return {
       dutySubmitted: dutySubmitted,
       dutyMissing: dutyMissing,
@@ -1416,8 +1468,14 @@
       guestVipOccValue: guest ? guest.avgVipOcc : null,
       roomsValue: revenue.rooms || 0,
       avgAdrValue: avgAdr,
+      avgRevparValue: avgRevpar,
       roomsSold: night ? night.roomsSold : null,
-      avgOccupancy: night ? night.avgOccupancy : null
+      avgOccupancy: night ? night.avgOccupancy : null,
+      weekdayOccupancy: night ? night.weekdayOccupancy : null,
+      weekendOccupancy: night ? night.weekendOccupancy : null,
+      weekdayAdr: night ? night.weekdayAdr : null,
+      weekendAdr: night ? night.weekendAdr : null,
+      loyaltyMembers: night && Array.isArray(night.loyalty) ? night.loyalty.reduce((sum, value) => sum + (Number(value) || 0), 0) : null
     };
   }
 
@@ -1429,10 +1487,12 @@
       { title: 'Revenue, Occupancy, Volume & Guest Satisfaction', kind: 'hero', cards: [
         { label: 'Night rooms revenue', value: n(stats.roomsValue), unit: 'SAR', tone: 'indigo', badge: 'Primary KPI', note: 'Room revenue in this period' },
         { label: 'Rooms sold', value: has(stats.roomsSold) ? n(stats.roomsSold) : '—', tone: 'teal', note: 'Occupied room nights in this period' },
-        window.occupancyCard('Avg Occupancy %', stats.avgOccupancy, 'Rooms sold ÷ rooms available, filed nights'),
-        { label: 'Avg ADR', value: has(stats.avgAdrValue) ? n(stats.avgAdrValue) : '—', unit: 'SAR', tone: 'teal', note: 'Average daily room rate' },
+        { label: 'Avg RevPAR', value: has(stats.avgRevparValue) ? n(stats.avgRevparValue) : '—', unit: 'SAR', tone: 'indigo', note: 'Average revenue per available room' },
+        window.nightOccupancyCard(stats.avgOccupancy, stats.weekdayOccupancy, stats.weekendOccupancy),
+        window.nightAdrCard(stats.avgAdrValue, stats.weekdayAdr, stats.weekendAdr),
         Object.assign({ label: 'Avg TrustYou GSS', value: stats.gss, tone: 'teal', note: 'Out of 100 guest score index' }, window.gssStatus(stats.gss)),
-        window.occupancyCard('Avg VIP occ', stats.guestVipOccValue, 'VIP arrivals ÷ hotel rooms', Number(stats.guestVipOccValue) > 0 ? { badge: 'Active', badgeColor: tones.indigo } : {})
+        window.occupancyCard('Avg VIP occ', stats.guestVipOccValue, 'VIP arrivals ÷ hotel rooms', Number(stats.guestVipOccValue) > 0 ? { badge: 'Active', badgeColor: tones.indigo } : {}),
+        { label: 'ALL Loyalty Members', value: stats.loyaltyMembers == null ? '—' : n(stats.loyaltyMembers), color: '#7c6bf2', note: 'Total entered on night reports in this period' }
       ] },
       { title: 'Operational Report Submission Compliance', kind: 'pair', cards: [
         { title: 'Duty Reports Submission', done: stats.dutySubmitted, open: stats.dutyMissing, doneLabel: 'Duty reports submitted', openLabel: 'Duty days not submitted' },
@@ -1473,9 +1533,9 @@
       { title: 'Revenue, Occupancy & Rate Benchmarks', kind: 'hero', cards: [
         { label: 'Night rooms revenue', value: n(revenue.rooms || 0), unit: 'SAR', tone: 'indigo', badge: 'Primary KPI', note: 'Room revenue in this period' },
         { label: 'Rooms sold', value: data.roomsSold != null ? n(data.roomsSold) : '—', tone: 'teal', note: 'Occupied room nights in this period' },
-        window.occupancyCard('Avg Occupancy %', data.avgOccupancy, 'Rooms sold ÷ rooms available, filed nights'),
-        { label: 'Avg ADR', value: mean(data.adr) == null ? '—' : n(mean(data.adr)), unit: 'SAR', tone: 'teal', note: 'Average daily room rate' },
-        { label: 'Avg RevPAR', value: mean(data.revpar) == null ? '—' : n(mean(data.revpar)), unit: 'SAR', tone: 'teal', note: 'Average revenue per available room' },
+        { label: 'Avg RevPAR', value: mean(data.revpar) == null ? '—' : n(mean(data.revpar)), unit: 'SAR', tone: 'indigo', note: 'Average revenue per available room' },
+        window.nightOccupancyCard(data.avgOccupancy, data.weekdayOccupancy, data.weekendOccupancy),
+        window.nightAdrCard(data.avgAdr, data.weekdayAdr, data.weekendAdr),
         { label: 'Grand total revenue', value: n(data.grandTotal || 0), unit: 'SAR', tone: 'indigo', badge: 'All outlets', badgeColor: tones.indigo, note: 'Rooms + F&B + M&E + OOD + Other' }
       ] },
       { title: 'Night Audit Submission Compliance', kind: 'pair', cards: [
@@ -1532,11 +1592,13 @@
     const body = document.getElementById('fullBody');
     if (!body) return;
     const range = { from: state.periodFrom, to: state.periodTo };
-    const [duty, night, guest, spots] = await Promise.all([
+    const compare = comparisonWindow(state.periodMode, range.from, range.to);
+    const [duty, night, guest, spots, prevNight] = await Promise.all([
       window.apiFetch('/api/reports/analysis?' + window.periodQuery()),
       window.apiFetch('/api/night/analysis?' + window.periodQuery()),
       window.apiFetch('/api/guest/analysis?' + window.periodQuery()),
-      window.apiFetch('/api/parking/spots')
+      window.apiFetch('/api/parking/spots'),
+      window.apiFetch('/api/night/analysis?date=' + encodeURIComponent(compare.to) + '&range=week&start=' + encodeURIComponent(compare.from))
     ]);
     const index = await window.apiFetch('/api/reports/index');
     relabel(night);
@@ -1547,26 +1609,7 @@
     fullPack = { duty: duty, night: night, guest: guest, index: index || [], from: range.from, to: range.to, stats: stats };
     window.currentDutyAnalysis = duty;
     const charts = window.NovotelCharts;
-    body.innerHTML = `
-      <p class="dmr-sub">${escapeHtml(range.from)} to ${escapeHtml(range.to)}</p>
-      ${window.kpiBoard(dashboardTiers(stats))}
-      <div class="dash-pies">
-        <div class="dmr-card dmr-chart-card"><h3>Revenue Mix</h3><div class="chart-box chart-box-pie"><canvas id="pieRevenue"></canvas></div></div>
-        <div class="dmr-card dmr-chart-card"><h3>Guest priority</h3><div class="chart-box chart-box-pie"><canvas id="guestPriority"></canvas></div></div>
-      </div>
-      <div class="dmr-card dmr-chart-card"><h3>Guest Relation VIP</h3><div class="chart-box"><canvas id="guestVip"></canvas></div></div>
-      ${window.actionItemsHtml ? window.actionItemsHtml((duty && duty.actionItems) || []) : ''}
-      <div class="dmr-card dmr-chart-card"><h3>Duty occupancy and ALL Loyalty Members</h3><div class="chart-box"><canvas id="fullOcc"></canvas></div></div>
-      <div class="dmr-card dmr-chart-card"><h3>TrustYou GSS</h3><div class="chart-box"><canvas id="fullGss"></canvas></div></div>
-      <div class="dmr-card dmr-chart-card"><h3>Inspection failures</h3><div class="chart-box"><canvas id="fullFail"></canvas></div></div>
-      <div class="dmr-card dmr-chart-card"><h3>Night occupancy and ALL Loyalty Members</h3><div class="chart-box"><canvas id="fullNightOcc"></canvas></div></div>
-      <div class="dmr-card dmr-chart-card"><h3>ADR and RevPAR</h3><div class="chart-box"><canvas id="fullRates"></canvas></div></div>
-      <div class="dmr-card dmr-chart-card"><h3>Room revenue</h3><div class="chart-box"><canvas id="fullRooms"></canvas></div></div>
-      <div class="dmr-card dmr-chart-card"><h3>Revenue by Departments</h3><div class="chart-box"><canvas id="fullRevenue"></canvas></div></div>
-      <div class="dmr-card dmr-section-card"><h3>Complaints in this period</h3>
-        ${duty && duty.complaintsList.length ? duty.complaintsList.slice(0, 8).map(item => `<div class="dmr-recur-item"><span>${escapeHtml(item.date)} — ${escapeHtml(item.complaint || '')}</span></div>`).join('') : '<p>No complaints in this period.</p>'}
-      </div>
-      <button type="button" class="dmr-btn dmr-btn-primary" id="fullPdfBtn">Export dashboard PDF</button>`;
+    body.innerHTML = dashboardHtml(stats, duty, night, guest, prevNight, compare);
     if (!charts || !window.occupancySeries) {
       const btn = document.getElementById('fullPdfBtn');
       if (btn) btn.onclick = () => exportFullPdf();
@@ -1594,17 +1637,436 @@
     if (window.guestPriorityChart) window.guestPriorityChart(document.getElementById('guestPriority'), guest || {}, false);
     if (window.guestVipChart) window.guestVipChart(document.getElementById('guestVip'), guest || {}, false);
     const revOptions = charts.chartFrame();
+    revOptions.indexAxis = 'y';
+    revOptions.scales.y.grid = { display: false };
     charts.mountChart(document.getElementById('fullRevenue'), {
       type: 'bar',
       data: {
         labels: ['Rooms', 'F&B', 'M&E', 'OOD', 'Other'],
-        datasets: [{ data: [revenue.rooms || 0, revenue.fb || 0, revenue.me || 0, revenue.ood || 0, revenue.other || 0], backgroundColor: ['#1e22aa', '#14b8a6', '#7c6bf2', '#A8814F', '#8aa0b2'], borderRadius: 8, maxBarThickness: 48 }]
+        datasets: [{ label: 'Revenue (SAR)', data: [revenue.rooms || 0, revenue.fb || 0, revenue.me || 0, revenue.ood || 0, revenue.other || 0], backgroundColor: ['#1e22aa', '#14b8a6', '#7c6bf2', '#A8814F', '#8aa0b2'], borderRadius: 6, maxBarThickness: 16 }]
       },
       options: revOptions
+    });
+    const segments = (night && night.segments) || [];
+    const segOptions = charts.chartFrame();
+    segOptions.indexAxis = 'y';
+    segOptions.scales.y.grid = { display: false };
+    segOptions.scales.x.beginAtZero = true;
+    charts.mountChart(document.getElementById('fullSegments'), {
+      type: 'bar',
+      data: {
+        labels: segments.map(seg => seg.code),
+        datasets: [{ label: 'Rooms', data: segments.map(seg => seg.rooms || 0), backgroundColor: '#5b60ff', borderRadius: 6, borderSkipped: false, maxBarThickness: 16 }]
+      },
+      options: segOptions
     });
     const btn = document.getElementById('fullPdfBtn');
     if (btn) btn.onclick = () => exportFullPdf();
   }
+
+  const DASH_TABS = { main: 'perf', side: 'parking', list: 'actions', pie: 'mix' };
+  const DASH_ICONS = {
+    money: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.7 0-3 .8-3 2s1.2 1.7 3 2 3 .9 3 2.1-1.3 1.9-3 1.9c-1.4 0-2.6-.6-3-1.6M12 6v2M12 16v2"/></svg>',
+    bed: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21V8l9-5 9 5v13M9 21v-7h6v7"/></svg>',
+    trend: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg>',
+    users: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/><circle cx="9" cy="7" r="4"/></svg>',
+    pdf: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>'
+  };
+
+  function dashTabFor(group){
+    const tabs = window.state && window.state.dashTabs;
+    return (tabs && tabs[group]) || DASH_TABS[group];
+  }
+
+  function dashTabs(group, items, extra){
+    return `<div class="dash-tabs" role="tablist">${items.map(([id, label]) => {
+      const on = dashTabFor(group) === id;
+      return `<button type="button" role="tab" class="dash-tab${on ? ' on' : ''}" data-dash-group="${group}" data-dash-tab="${id}" aria-selected="${on}">${label}</button>`;
+    }).join('')}${extra ? `<div class="dash-tabs-end">${extra}</div>` : ''}</div>`;
+  }
+
+  function dashPane(group, id, html){
+    return `<div class="dash-pane${dashTabFor(group) === id ? ' on' : ''}" data-dash-pane="${group}:${id}" role="tabpanel">${html}</div>`;
+  }
+
+  function dashCanvas(id){
+    return `<div class="dash-canvas"><canvas id="${id}"></canvas></div>`;
+  }
+
+  function dashRing(outerPct, innerPct, outerColor, innerColor){
+    const arc = (r, width, pct, color) => {
+      const length = 2 * Math.PI * r;
+      const share = Math.max(0, Math.min(100, Number(pct) || 0));
+      const track = `<circle cx="75" cy="75" r="${r}" class="dash-ring-track" stroke-width="${width}"/>`;
+      if (!share) return track;
+      return track + `<circle cx="75" cy="75" r="${r}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linecap="round" stroke-dasharray="${length.toFixed(1)}" stroke-dashoffset="${(length * (1 - share / 100)).toFixed(1)}"/>`;
+    };
+    return `<svg viewBox="0 0 150 150" aria-hidden="true">${arc(68, 9, outerPct, outerColor)}${arc(55, 9, innerPct, innerColor)}<circle cx="75" cy="75" r="44" class="dash-ring-core"/></svg>`;
+  }
+
+  function comparisonWindow(mode, from, to){
+    const parts = iso => iso.split('-').map(Number);
+    const iso = date => date.toISOString().slice(0, 10);
+    const monthEnd = (year, monthIndex) => new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+    const addDays = (value, count) => {
+      const [y, m, d] = parts(value);
+      return iso(new Date(Date.UTC(y, m - 1, d + count)));
+    };
+    const backMonths = (value, count) => {
+      const [y, m, d] = parts(value);
+      const target = new Date(Date.UTC(y, m - 1 - count, 1));
+      const last = monthEnd(target.getUTCFullYear(), target.getUTCMonth());
+      const day = d === monthEnd(y, m - 1) ? last : Math.min(d, last);
+      return iso(new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth(), day)));
+    };
+    if (mode === 'today') return { from: addDays(from, -1), to: addDays(to, -1), label: 'vs yesterday' };
+    if (mode === 'month') return { from: backMonths(from, 1), to: backMonths(to, 1), label: 'vs last month' };
+    if (mode === 'ytd') return { from: backMonths(from, 12), to: backMonths(to, 12), label: 'vs last year' };
+    const [fy, fm, fd] = parts(from);
+    const [ty, tm, td] = parts(to);
+    const span = Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86400000) + 1;
+    return { from: addDays(from, -span), to: addDays(to, -span), label: mode === 'week' ? 'vs last week' : 'vs previous period' };
+  }
+
+  function nightHeadline(night){
+    if (!night) return {};
+    const revenue = night.revenue || {};
+    const revpar = (night.revpar || []).filter(value => value != null).map(Number);
+    const loyalty = (night.loyalty || []).reduce((sum, value) => sum + (Number(value) || 0), 0);
+    const filed = (night.occupancy || []).some(value => value != null);
+    return {
+      grand: night.grandTotal != null ? night.grandTotal : (revenue.rooms || 0) + (revenue.fb || 0) + (revenue.me || 0) + (revenue.ood || 0) + (revenue.other || 0),
+      revpar: revpar.length ? Math.round(revpar.reduce((a, b) => a + b, 0) / revpar.length) : null,
+      adr: night.avgAdr != null ? night.avgAdr : null,
+      loyalty: filed ? loyalty : null
+    };
+  }
+
+  function dashboardHtml(stats, duty, night, guest, prevNight, compare){
+    const n = window.kpiNumber;
+    const has = value => value != null && value !== '' && value !== '—' && Number.isFinite(Number(value));
+    const pct = value => has(value) ? n(value, 1) + '%' : '—';
+    const sar = value => has(value) ? 'SAR ' + n(value) : '—';
+    const count = value => has(value) ? n(value) : '—';
+    const revenue = stats.revenue || {};
+    const grand = night && night.grandTotal != null ? night.grandTotal : (revenue.rooms || 0) + (revenue.fb || 0) + (revenue.me || 0) + (revenue.ood || 0) + (revenue.other || 0);
+    const parking = stats.parking;
+    const sections = [
+      ['Duty Manager', stats.dutySubmitted, stats.dutyMissing],
+      ['Night Manager', stats.nightFiled, stats.nightMissing],
+      ['Guest Relation', stats.guestSubmitted || 0, stats.guestMissing || 0]
+    ];
+    const reportsIn = sections.reduce((sum, row) => sum + (row[1] || 0), 0);
+    const reportsAll = sections.reduce((sum, row) => sum + (row[1] || 0) + (row[2] || 0), 0);
+    const departure = guest && guest.avgDeparture != null ? guest.avgDeparture : null;
+    const callRating = guest && guest.avgEmployee != null ? guest.avgEmployee : null;
+    const reviews = duty && duty.reviewsSum ? duty.reviewsSum : null;
+    const complaints = (duty && duty.complaintsList) || [];
+    const revparSplit = { weekday: [], weekend: [] };
+    const fromIso = window.state && window.state.periodFrom;
+    ((night && night.revpar) || []).forEach((value, i) => {
+      if (value == null || !fromIso) return;
+      const day = new Date(fromIso + 'T00:00:00');
+      day.setDate(day.getDate() + i);
+      const weekend = day.getDay() === 4 || day.getDay() === 5;
+      revparSplit[weekend ? 'weekend' : 'weekday'].push(Number(value));
+    });
+    const mean = list => list.length ? Math.round(list.reduce((a, b) => a + b, 0) / list.length) : null;
+    const split = (weekday, weekend) => `<span class="dash-wd">Weekday ${weekday}</span> · <span class="dash-we">Weekend ${weekend}</span>`;
+
+    const prev = nightHeadline(prevNight);
+    const vs = (current, before) => {
+      const range = compare ? `${compare.from} to ${compare.to}` : '';
+      const label = compare ? compare.label : '';
+      if (!has(current) || !has(before) || Number(before) === 0) {
+        return `<span class="dash-vs none" title="No figures for ${escapeHtml(range)}">— ${escapeHtml(label)}</span>`;
+      }
+      const change = (Number(current) - Number(before)) / Math.abs(Number(before)) * 100;
+      const tone = change > 0 ? 'up' : (change < 0 ? 'down' : 'flat');
+      const arrow = change > 0 ? '▲' : (change < 0 ? '▼' : '■');
+      return `<span class="dash-vs ${tone}" title="${escapeHtml(range)}: ${escapeHtml(n(before))}">${arrow} ${n(Math.abs(change), 1)}% <em>${escapeHtml(label)}</em></span>`;
+    };
+    const hero = (label, value, note, icon, tone, lead, extra, delta) => `
+      <div class="dash-card dash-kpi${lead ? ' lead' : ''}${extra ? ' ' + extra : ''}">
+        <div><span class="dash-label">${label}</span><div class="dash-kpi-value"><strong>${value}</strong>${delta || ''}</div><small>${note}</small></div>
+        <span class="dash-badge ${tone}">${DASH_ICONS[icon]}</span>
+      </div>`;
+    const tile = (label, value, color, note, action) => action
+      ? `<button type="button" class="dash-tile is-link" style="background:${color}" title="${escapeHtml(note)}" ${action}><span>${label}</span><strong>${value}</strong></button>`
+      : `<div class="dash-tile" style="background:${color}" title="${escapeHtml(note)}"><span>${label}</span><strong>${value}</strong></div>`;
+    const fact = (tone, label, hint, value) => `<div class="dash-fact ${tone}"><span class="dash-fact-label">${label}</span><span class="dash-fact-hint">${hint}</span><strong>${value}</strong></div>`;
+    const parkRows = [
+      ['Available', 'available', '#4F7A5B', 'Free spots ready for a car'],
+      ['Occupied', 'occupied', '#B14B3F', 'Cars in, not due out today'],
+      ['Due out', 'due-today', '#C4813C', 'Cars expected to leave today'],
+      ['Overdue', 'overdue', '#7a2a23', 'Past the expected checkout time'],
+      ['Out of service', 'out-of-service', '#8A9099', 'Spots closed by an admin']
+    ];
+    const parkTotal = parking ? parkRows.reduce((sum, row) => sum + (parking[row[1]] || 0), 0) : 0;
+
+    return `
+    <div class="dash">
+      <section class="dash-hero">
+        ${hero('Total revenue', sar(grand), 'Rooms + F&amp;B + M&amp;E + OOD + Other', 'money', 'brass', true, '', vs(grand, prev.grand))}
+        ${hero('Avg RevPAR', sar(stats.avgRevparValue), split(sar(mean(revparSplit.weekday)), sar(mean(revparSplit.weekend))), 'bed', 'blue', false, '', vs(stats.avgRevparValue, prev.revpar))}
+        ${hero('Avg ADR', sar(stats.avgAdrValue), split(sar(stats.weekdayAdr), sar(stats.weekendAdr)), 'trend', 'teal', false, '', vs(stats.avgAdrValue, prev.adr))}
+        ${hero('ALL Loyalty Members', count(stats.loyaltyMembers), 'Total entered on night reports in this period', 'users', 'violet', false, 'loyalty', vs(stats.loyaltyMembers, prev.loyalty))}
+      </section>
+
+      <section class="dash-strip">
+        ${tile('Rooms sold', count(stats.roomsSold), '#1e22aa', 'Occupied room nights in this period')}
+        ${tile('Reports in', `${n(reportsIn)} / ${n(reportsAll)}`, '#3f7f5a', 'Duty, Night and Guest Relation reports submitted')}
+        ${tile('Check fails', count(stats.failures), '#C4813C', 'Show the failed checks', 'data-dash-open="fails"')}
+        ${tile('Complaints', count(stats.complaints), '#3a3f86', 'Show the guest complaints', 'data-dash-open="complaints"')}
+        ${tile('Urgent', count(stats.guestUrgent || 0), '#B14B3F', 'Show the urgent guest actions', 'data-dash-open="urgent"')}
+        ${tile('Mid', count(guest && guest.priority ? guest.priority.Mid || 0 : 0), '#b8860b', 'Show the mid priority guest actions', 'data-dash-open="mid"')}
+        ${tile('Normal', count(guest && guest.priority ? guest.priority.Normal || 0 : 0), '#2b31b8', 'Show the normal priority guest actions', 'data-dash-open="normal"')}
+        ${tile('Not satisfied', count(stats.guestNotSatisfied || 0), '#8c6b3f', 'Show the guests marked not satisfied', 'data-dash-open="unhappy"')}
+      </section>
+
+      <section class="dash-row">
+        <div class="dash-card dash-panel">
+          ${dashTabs('main', [['perf', 'Performance'], ['rooms', 'Room revenue'], ['nightOcc', 'Night occ'], ['dutyOcc', 'Duty occ'], ['rates', 'ADR &amp; RevPAR'], ['gss', 'GSS'], ['vip', 'VIP guests'], ['fails', 'Inspections']],
+            `<button type="button" class="dash-export" id="fullPdfBtn" title="Export dashboard PDF">${DASH_ICONS.pdf}<span>Export PDF</span></button>`)}
+          <div class="dash-body">
+            ${dashPane('main', 'perf', `
+              <div class="dash-perf">
+                <div class="dash-block">
+                  <h4>Occupancy</h4>
+                  <div class="dash-ring">${dashRing(stats.weekendOccupancy, stats.weekdayOccupancy, '#14b8a6', '#5b60ff')}<div class="dash-ring-mid"><strong>${has(stats.avgOccupancy) ? Math.round(stats.avgOccupancy) + '%' : '—'}</strong><small>Avg occupancy</small></div></div>
+                  <div class="dash-facts">
+                    ${fact('a', 'Weekend', 'Thu – Fri', pct(stats.weekendOccupancy))}
+                    ${fact('b', 'Weekday', 'Sat – Wed', pct(stats.weekdayOccupancy))}
+                    ${fact('c', 'VIP Avg Occupancy %', 'VIP arrivals ÷ rooms', pct(stats.guestVipOccValue))}
+                  </div>
+                </div>
+                <div class="dash-sep"></div>
+                <div class="dash-block">
+                  <h4>Guest satisfaction</h4>
+                  <div class="dash-ring">${dashRing(stats.gss, departure != null ? departure * 10 : null, '#14b8a6', '#A8814F')}<div class="dash-ring-mid"><strong>${has(stats.gss) ? n(stats.gss, 1) : '—'}</strong><small>TrustYou GSS</small></div></div>
+                  <div class="dash-facts">
+                    ${fact('a', 'Departure score', 'out of 10', departure != null ? n(departure, 1) : '—')}
+                    ${fact('d', 'Call rating', 'out of 10', callRating != null ? n(callRating, 1) : '—')}
+                    ${fact('c', 'Reviews', 'TrustYou', reviews != null ? n(reviews) : '—')}
+                  </div>
+                </div>
+              </div>`)}
+            ${dashPane('main', 'rooms', dashCanvas('fullRooms'))}
+            ${dashPane('main', 'nightOcc', dashCanvas('fullNightOcc'))}
+            ${dashPane('main', 'dutyOcc', dashCanvas('fullOcc'))}
+            ${dashPane('main', 'rates', dashCanvas('fullRates'))}
+            ${dashPane('main', 'gss', dashCanvas('fullGss'))}
+            ${dashPane('main', 'vip', dashCanvas('guestVip'))}
+            ${dashPane('main', 'fails', dashCanvas('fullFail'))}
+          </div>
+        </div>
+
+        <div class="dash-card dash-panel">
+          ${dashTabs('side', [['parking', 'Parking now'], ['depts', 'Revenue by departments'], ['compliance', 'Report compliance'], ['segments', 'Segments']])}
+          <div class="dash-body">
+            ${dashPane('side', 'depts', dashCanvas('fullRevenue'))}
+            ${dashPane('side', 'compliance', `
+              <div class="dash-gauges">
+                ${sections.map(([label, done, open], i) => {
+                  const total = (done || 0) + (open || 0);
+                  const share = total ? (done || 0) / total : 0;
+                  const length = 2 * Math.PI * 30;
+                  const color = ['#14b8a6', '#5b60ff', '#A8814F'][i];
+                  return `<div class="dash-gauge">
+                    <div class="dash-gauge-ring"><svg viewBox="0 0 74 74" aria-hidden="true"><circle cx="37" cy="37" r="30" class="dash-ring-track" stroke-width="7"/>${share ? `<circle cx="37" cy="37" r="30" fill="none" stroke="${color}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${length.toFixed(1)}" stroke-dashoffset="${(length * (1 - share)).toFixed(1)}"/>` : ''}</svg><strong>${n(done || 0)}/${n(total)}</strong></div>
+                    <span>${label.split(' ')[0]}</span>
+                    <small>${n(open || 0)} missing</small>
+                  </div>`;
+                }).join('')}
+              </div>`)}
+            ${dashPane('side', 'segments', `<p class="dash-caption">Rooms by segment on ${escapeHtml((window.state && window.state.periodTo) || '')}</p><div class="dash-canvas dash-canvas-captioned"><canvas id="fullSegments"></canvas></div>`)}
+            ${dashPane('side', 'parking', parking ? `
+              <div class="dash-park">
+                ${parkRows.map(([label, key, color, note]) => `<button type="button" class="dash-park-card" style="background:${color}" title="${escapeHtml(note)} · Open Manage Parkings" data-dash-go="parking"><span>${label}</span><strong>${n(parking[key] || 0)}</strong></button>`).join('')}
+                <button type="button" class="dash-park-card total" title="All parking spots · Open Manage Parkings" data-dash-go="parking"><span>Total spots</span><strong>${n(parkTotal)}</strong></button>
+              </div>` : '<p class="dash-empty">Parking status is not available for this account.</p>')}
+          </div>
+        </div>
+      </section>
+
+      <section class="dash-row">
+        <div class="dash-card dash-panel">
+          ${dashTabs('list', [['actions', `Action items${duty && duty.totalNotesOpen ? ' · ' + n(duty.totalNotesOpen) + ' open' : ''}`], ['complaints', `Complaints · ${n(complaints.length)}`], ['reports', 'Report submission']])}
+          <div class="dash-body">
+            ${dashPane('list', 'actions', `<div class="dash-scroll">${window.dashActionRows ? window.dashActionRows((duty && duty.actionItems) || []) : ''}</div>`)}
+            ${dashPane('list', 'complaints', `<div class="dash-scroll">${complaints.length ? `
+              <table class="dash-table"><thead><tr><th>Complaint</th><th>Room</th><th>Date</th><th class="r">Action</th></tr></thead><tbody>
+                ${complaints.map(item => `<tr><td>${escapeHtml(item.complaint || '')}</td><td>${escapeHtml(item.room || '—')}</td><td>${escapeHtml(item.date || '')}</td><td class="r">${escapeHtml(item.action || '—')}</td></tr>`).join('')}
+              </tbody></table>` : '<p class="dash-empty">No complaints in this period.</p>'}</div>`)}
+            ${dashPane('list', 'reports', `<div class="dash-scroll">
+              <table class="dash-table"><thead><tr><th>Section</th><th>Submitted</th><th>Not submitted</th><th class="r">Rate</th></tr></thead><tbody>
+                ${sections.map(([label, done, open]) => {
+                  const total = (done || 0) + (open || 0);
+                  const rate = total ? Math.round((done || 0) / total * 100) : 0;
+                  const tone = rate >= 100 ? 'dmr-status-closed' : (rate >= 50 ? 'dmr-status-progress' : 'dmr-status-open');
+                  return `<tr><td>${label}</td><td>${n(done || 0)}</td><td>${n(open || 0)}</td><td class="r"><span class="dash-pill ${tone}">${rate}%</span></td></tr>`;
+                }).join('')}
+              </tbody></table></div>`)}
+          </div>
+        </div>
+
+        <div class="dash-card dash-panel">
+          ${dashTabs('pie', [['mix', 'Revenue mix'], ['priority', 'Guest priority']])}
+          <div class="dash-body">
+            ${dashPane('pie', 'mix', dashCanvas('pieRevenue'))}
+            ${dashPane('pie', 'priority', dashCanvas('guestPriority'))}
+          </div>
+        </div>
+      </section>
+    </div>`;
+  }
+
+  function dashDetail(label, value){
+    const text = value == null ? '' : String(value).trim();
+    return text ? `<div class="dash-pop-field"><span>${label}</span>${escapeHtml(text)}</div>` : '';
+  }
+
+  function dashPopupContent(kind){
+    const duty = (fullPack && fullPack.duty) || {};
+    const guest = (fullPack && fullPack.guest) || {};
+    const guestButton = date => `<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-open-guest="${escapeHtml(date)}">Open Guest Relation report</button>`;
+    const dutyButton = date => `<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-review-date="${escapeHtml(date)}">Open Duty report</button>`;
+    const row = (heading, meta, fields, button) => `
+      <div class="dash-pop-row">
+        <div class="dash-pop-main">
+          <div class="dash-pop-title">${heading}</div>
+          <div class="dash-pop-meta">${meta}</div>
+          ${fields ? `<div class="dash-pop-fields">${fields}</div>` : ''}
+        </div>
+        ${button}
+      </div>`;
+    const guestName = item => escapeHtml(item.name || 'Guest') + (item.room ? ' · Room ' + escapeHtml(item.room) : '') + (item.reservation ? ' · Res. ' + escapeHtml(item.reservation) : '');
+    const priority = { urgent: ['urgentList', 'Urgent guest actions', 'urgent'], mid: ['midList', 'Mid priority guest actions', 'mid priority'], normal: ['normalList', 'Normal priority guest actions', 'normal priority'] }[kind];
+    if (priority) {
+      const items = guest[priority[0]] || [];
+      return {
+        title: priority[1],
+        empty: `No guest rows were marked ${priority[2]} in this period.`,
+        items: items,
+        html: items.map(item => row(
+          guestName(item),
+          [item.date, item.section, item.membership].filter(Boolean).map(escapeHtml).join(' · '),
+          dashDetail('Preferences', item.preferences) + dashDetail('Special request', item.request) + dashDetail('Guest feedback', item.feedback)
+            + dashDetail('Action taken', item.action) + dashDetail('Note', item.note) + dashDetail('Call status', item.callStatus) + dashDetail('Contacted by', item.contacted),
+          guestButton(item.date)
+        )).join('')
+      };
+    }
+    if (kind === 'unhappy') {
+      const items = guest.notSatisfiedList || [];
+      return {
+        title: 'Guests not satisfied',
+        empty: 'No in-house guests were marked not satisfied in this period.',
+        items: items,
+        html: items.map(item => row(
+          guestName(item),
+          [item.date, 'In-house', item.membership, item.priority ? item.priority + ' priority' : ''].filter(Boolean).map(escapeHtml).join(' · '),
+          dashDetail('Guest feedback', item.feedback) + dashDetail('Special request', item.request) + dashDetail('Action taken', item.action)
+            + dashDetail('Note', item.note) + dashDetail('Contacted by', item.contacted),
+          guestButton(item.date)
+        )).join('')
+      };
+    }
+    if (kind === 'complaints') {
+      const items = duty.complaintsList || [];
+      return {
+        title: 'Guest complaints',
+        empty: 'No guest complaints were logged in this period.',
+        items: items,
+        html: items.map(item => row(
+          escapeHtml(item.complaint || 'Complaint'),
+          [item.date, item.room ? 'Room ' + item.room : ''].filter(Boolean).map(escapeHtml).join(' · '),
+          dashDetail('Action taken', item.action),
+          dutyButton(item.date)
+        )).join('')
+      };
+    }
+    const items = duty.failList || [];
+    return {
+      title: 'Failed checks',
+      empty: 'No checklist items failed in this period.',
+      items: items,
+      html: items.map(item => row(
+        escapeHtml(item.item || 'Checklist item'),
+        [item.date, item.section].filter(Boolean).map(escapeHtml).join(' · '),
+        dashDetail('Comment', item.comment),
+        dutyButton(item.date)
+      )).join('')
+    };
+  }
+
+  function closeDashPopup(){
+    const open = document.getElementById('dashPopup');
+    if (open) open.remove();
+  }
+
+  function openDashPopup(kind){
+    closeDashPopup();
+    const content = dashPopupContent(kind);
+    const bg = document.createElement('div');
+    bg.className = 'dash-modal-bg';
+    bg.id = 'dashPopup';
+    bg.innerHTML = `
+      <div class="dash-modal" role="dialog" aria-modal="true" aria-labelledby="dashPopupTitle">
+        <div class="dash-modal-head">
+          <h3 id="dashPopupTitle">${content.title}</h3>
+          <span class="dash-modal-count">${content.items.length}</span>
+          <button type="button" class="dash-modal-close" data-dash-close aria-label="Close">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="dash-modal-body">${content.items.length ? content.html : `<p class="dash-empty">${content.empty}</p>`}</div>
+      </div>`;
+    bg.addEventListener('click', e => { if (e.target === bg) closeDashPopup(); });
+    document.body.appendChild(bg);
+    bg.querySelector('[data-dash-close]').focus();
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeDashPopup();
+  });
+
+  document.addEventListener('click', (e) => {
+    const target = e.target.closest ? e.target : null;
+    if (!target) return;
+    const opener = target.closest('[data-dash-open]');
+    if (opener) { openDashPopup(opener.dataset.dashOpen); return; }
+    if (target.closest('[data-dash-close]')) { closeDashPopup(); return; }
+    if (target.closest('[data-dash-go]')) {
+      window.goTo('parking', 'manage');
+      window.renderApp();
+      return;
+    }
+    const guestReport = target.closest('[data-open-guest]');
+    if (guestReport) {
+      closeDashPopup();
+      window.goTo('guest', 'today');
+      window.state.selectedDate = guestReport.dataset.openGuest;
+      window.renderApp();
+      return;
+    }
+    if (target.closest('#dashPopup [data-review-date]')) closeDashPopup();
+  });
+
+  document.addEventListener('click', (e) => {
+    const tab = e.target.closest && e.target.closest('[data-dash-tab]');
+    if (!tab) return;
+    const group = tab.dataset.dashGroup;
+    const id = tab.dataset.dashTab;
+    const state = window.state;
+    state.dashTabs = Object.assign({}, state.dashTabs, { [group]: id });
+    document.querySelectorAll(`[data-dash-group="${group}"]`).forEach(btn => {
+      const on = btn.dataset.dashTab === id;
+      btn.classList.toggle('on', on);
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    document.querySelectorAll(`[data-dash-pane^="${group}:"]`).forEach(pane => pane.classList.toggle('on', pane.dataset.dashPane === group + ':' + id));
+  });
 
   async function exportFullPdf(){
     const pack = fullPack;
@@ -1623,7 +2085,7 @@
     const duty = pack.duty || {};
     const night = pack.night || {};
     const stats = pack.stats || dashboardStats(duty, night, pack.index, pack.from, pack.to, pack.guest);
-    y = pdf.pdfKpiBoard(doc, W, y, dashboardTiers(stats));
+    y = pdf.pdfKpiBoard(doc, W, y, dashboardTiers(stats), { split: true });
     const revenueMix = stats.revenue || {};
     const guestPack = pack.guest || {};
     const pies = [

@@ -350,6 +350,48 @@ def test_logged_in_roles_can_read_duty(api):
         assert analysis.status_code == 200
 
 
+def test_duty_analysis_lists_each_failed_check(api):
+    client, _ = api
+    staff = _headers(USERS["staff"])
+    body = _complete_duty("2099-07-02")
+    body["checklists"]["publicAreas"][1] = {"status": False, "comment": "Coffee table empty", "photos": []}
+    body["cafeteriaItems"][0] = {"status": False, "comment": "", "photos": []}
+    assert client.post("/api/reports", json=body, headers=staff).status_code == 200
+    data = client.get("/api/reports/analysis", params={"date": "2099-07-02", "range": "week"}, headers=staff).json()
+    assert data["totalFail"] == 2
+    assert data["failList"] == [
+        {"date": "2099-07-02", "section": "Public Areas – GF", "item": "Saudi Coffee Table", "comment": "Coffee table empty"},
+        {"date": "2099-07-02", "section": "Staff Cafeteria", "item": "Back of House store is clean and well arranged", "comment": ""},
+    ]
+
+
+def test_guest_analysis_lists_urgent_and_not_satisfied_guests(api):
+    client, _ = api
+    staff = _headers(USERS["staff"])
+    saved = client.put(
+        "/api/guest",
+        json={
+            "date": "2099-07-03",
+            "preArrival": [{"name": "Lina", "reservation": "R12", "priority": "Urgent", "preferences": "Airport pickup"}],
+            "inHouse": [
+                {"name": "Omar", "room": "501", "priority": "Normal", "satisfaction": "Non Satisfied", "feedback": "Noisy room", "action": "Moved floor"},
+                {"name": "Sara", "room": "602", "priority": "Mid", "satisfaction": "Satisfied"},
+            ],
+        },
+        headers=staff,
+    )
+    assert saved.status_code == 200
+    data = client.get("/api/guest/analysis", params={"date": "2099-07-03", "range": "week"}, headers=staff).json()
+    assert [(row["date"], row["section"], row["name"], row["reservation"]) for row in data["urgentList"]] == [
+        ("2099-07-03", "Pre-arrival", "Lina", "R12"),
+    ]
+    assert [(row["date"], row["name"], row["room"], row["feedback"], row["action"]) for row in data["notSatisfiedList"]] == [
+        ("2099-07-03", "Omar", "501", "Noisy room", "Moved floor"),
+    ]
+    assert [(row["section"], row["name"]) for row in data["midList"]] == [("In-house", "Sara")]
+    assert [(row["section"], row["name"]) for row in data["normalList"]] == [("In-house", "Omar")]
+
+
 def test_duty_reads_require_login(api):
     client, _ = api
     assert client.get("/api/reports/index").status_code == 401

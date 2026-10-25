@@ -22,6 +22,8 @@ class CheckIn(BaseModel):
     isVisitor: bool = False
     date: str = ""
     time: str = ""
+    isHod: bool = False
+    position: str = Field("", max_length=80)
     guestName: str = Field("", max_length=120)
     plate: str = Field("", max_length=40)
     carModel: str = Field("", max_length=80)
@@ -58,6 +60,8 @@ def _car(row):
     return {
         "room": row["room"],
         "isVisitor": bool(row["is_visitor"]),
+        "isHod": bool(row["is_hod"]),
+        "position": row["position"],
         "guestName": row["guest_name"],
         "plate": row["plate"],
         "carModel": row["car_model"],
@@ -120,24 +124,33 @@ async def list_spots(_: TokenData = Depends(require_auth), db: aiosqlite.Connect
 async def check_in(spot_id: str, data: CheckIn, user: TokenData = Depends(require_auth), db: aiosqlite.Connection = Depends(get_db)):
     _require_write(user)
     room = data.room.strip()
-    if not data.isVisitor and not room:
+    position = data.position.strip()
+    if data.isHod and data.isVisitor:
+        raise HTTPException(status_code=400, detail="Choose Visitor or HOD")
+    if data.isHod and not position:
+        raise HTTPException(status_code=400, detail="Position required")
+    if not data.isVisitor and not data.isHod and not room:
         raise HTTPException(status_code=400, detail="Room Number required")
     _checkout_time(data.date, data.time)
     row = await _get_spot(db, spot_id)
     if _out_of_service_now(row):
         raise HTTPException(status_code=409, detail=f"Spot {spot_id} is out of service until {row['oos_to']}")
+    stored_room = "" if data.isHod else ("VISITOR" if data.isVisitor else room)
+    who = "HOD" if data.isHod else ("Visitor" if data.isVisitor else "Room " + room)
     cursor = await db.execute(
-        """UPDATE parking_spots SET status = 'occupied', room = ?, is_visitor = ?, date_out = ?, time_out = ?,
-           guest_name = ?, plate = ?, car_model = ?, car_colour = ? WHERE id = ? AND status = 'available'""",
+        """UPDATE parking_spots SET status = 'occupied', room = ?, is_visitor = ?, is_hod = ?, position = ?,
+           date_out = ?, time_out = ?, guest_name = ?, plate = ?, car_model = ?, car_colour = ?
+           WHERE id = ? AND status = 'available'""",
         (
-            "VISITOR" if data.isVisitor else room, int(data.isVisitor), data.date, data.time,
-            data.guestName.strip(), data.plate.strip().upper(), data.carModel.strip(), data.carColour.strip(), spot_id,
+            stored_room, int(data.isVisitor), int(data.isHod), position if data.isHod else "",
+            data.date, data.time, data.guestName.strip(), data.plate.strip().upper(),
+            data.carModel.strip(), data.carColour.strip(), spot_id,
         ),
     )
     if cursor.rowcount == 0:
         raise HTTPException(status_code=409, detail=f"Spot {spot_id} is already taken")
     details = _car(await _get_spot(db, spot_id))
-    return await _logged(db, user, spot_id, f"Checked IN ({'Visitor' if data.isVisitor else 'Room ' + room})", details)
+    return await _logged(db, user, spot_id, f"Checked IN ({who})", details)
 
 
 @router.post("/spots/{spot_id}/checkout")
@@ -145,8 +158,9 @@ async def check_out(spot_id: str, user: TokenData = Depends(require_auth), db: a
     _require_write(user)
     details = _car(await _get_spot(db, spot_id))
     cursor = await db.execute(
-        """UPDATE parking_spots SET status = 'available', room = '', is_visitor = 0, date_out = '', time_out = '',
-           guest_name = '', plate = '', car_model = '', car_colour = '' WHERE id = ? AND status = 'occupied'""",
+        """UPDATE parking_spots SET status = 'available', room = '', is_visitor = 0, is_hod = 0, position = '',
+           date_out = '', time_out = '', guest_name = '', plate = '', car_model = '', car_colour = ''
+           WHERE id = ? AND status = 'occupied'""",
         (spot_id,),
     )
     if cursor.rowcount == 0:

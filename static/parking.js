@@ -35,7 +35,6 @@
       queueMicrotask(loadLogs);
       queueMicrotask(loadUserFilter);
       return `
-        <div class="dmr-headline"><h1>Activity Logs</h1></div>
         <div class="dmr-sub">Every check-in, check-out, extension, and out-of-service change on the parking floors. Click an entry to see all its details.</div>
         <div class="dmr-card parking-filters">
           <div class="dmr-field"><label>Parking Number</label><input id="parkFilterSpot" data-filter="spot" placeholder="e.g. B2-5" value="${escapeHtml(filters.spot)}"></div>
@@ -48,7 +47,6 @@
     }
     queueMicrotask(loadSpots);
     return `
-      <div class="dmr-headline"><h1>Manage Parkings</h1></div>
       <div class="dmr-sub">Tap a free spot to check a car in. Tap a taken spot to check it out or extend the stay.</div>
       <div class="parking-legend">
         <span><i class="parking-swatch available"></i>Available</span>
@@ -104,12 +102,12 @@
           <div class="parking-floor-head"><h3>Floor ${escapeHtml(floor)}</h3><span>${free} of ${list.length} free${overdue ? ` · <b class="parking-overdue-count">${overdue} overdue</b>` : ''}</span></div>
           <div class="parking-grid">
             ${list.map(spot => `
-              <button type="button" class="parking-spot ${spotClass(spot)}${spot.isHandicap ? ' handicap' : ''}" data-spot="${escapeHtml(spot.id)}" aria-label="Spot ${escapeHtml(spot.id)} ${outOfService(spot) ? 'out of service from ' + escapeHtml(spot.oosFrom) + ' to ' + escapeHtml(spot.oosTo) : (spot.status === 'available' ? 'available' : 'taken by ' + escapeHtml(spot.room))}${isOverdue(spot) ? ', overdue' : ''}">
+              <button type="button" class="parking-spot ${spotClass(spot)}${spot.isHandicap ? ' handicap' : ''}" data-spot="${escapeHtml(spot.id)}" aria-label="Spot ${escapeHtml(spot.id)} ${outOfService(spot) ? 'out of service from ' + escapeHtml(spot.oosFrom) + ' to ' + escapeHtml(spot.oosTo) : (spot.status === 'available' ? 'available' : 'taken by ' + escapeHtml(spot.isHod ? (spot.position || 'HOD') : spot.room))}${isOverdue(spot) ? ', overdue' : ''}">
                 ${isOverdue(spot) ? '<span class="parking-flag">OVERDUE</span>' : ''}
                 <span class="parking-size">${escapeHtml(spot.size)}</span>
                 <span class="parking-num">${spot.number}</span>
                 ${spot.isHandicap ? '<span class="parking-icon">♿</span>' : ''}
-                ${spot.status === 'occupied' ? `<span class="parking-room">${escapeHtml(spot.room)}</span>` : ''}
+                ${spot.status === 'occupied' ? `<span class="parking-room">${escapeHtml(spot.isHod ? (spot.position || 'HOD') : spot.room)}</span>` : ''}
                 ${outOfService(spot) ? `<span class="parking-oos">OUT OF SERVICE</span><span class="parking-oos">${shortDate(spot.oosFrom)}–${shortDate(spot.oosTo)}</span>` : ''}
               </button>`).join('')}
           </div>
@@ -123,7 +121,7 @@
 
   function blankForm(){
     return {
-      room: '', isVisitor: false, date: tomorrow(), time: '12:00',
+      room: '', isVisitor: false, isHod: false, position: '', date: tomorrow(), time: '12:00',
       guestName: '', plate: '', carModel: '', colour: '', colourOther: '',
       oosFrom: today(), oosTo: tomorrow()
     };
@@ -159,9 +157,16 @@
       </div>`;
   }
 
+  function occupantTitle(spot){
+    if (spot.isHod) return 'HOD';
+    if (spot.isVisitor) return 'VISITOR';
+    return 'Room ' + spot.room;
+  }
+
   function carRows(car){
     return [
-      ['Guest Name', car.guestName],
+      [car.isHod ? 'Employee Name' : 'Guest Name', car.guestName],
+      ['Position', car.isHod ? car.position : ''],
       ['Registration No.', car.plate],
       ['Car Model', car.carModel],
       ['Colour', car.carColour]
@@ -187,9 +192,13 @@
       body = `
         <h3>Check In - Spot ${id}</h3>
         ${oosScheduled(spot) ? `<div class="parking-info">Scheduled <strong>out of service</strong> from ${escapeHtml(spot.oosFrom)} to ${escapeHtml(spot.oosTo)}.</div>` : ''}
-        <label class="parking-check"><input type="checkbox" data-form="isVisitor" ${form.isVisitor ? 'checked' : ''}> Visitor (No Room #)</label>
-        ${form.isVisitor ? '' : `<div class="dmr-field"><label>Room Number</label><input data-form="room" inputmode="numeric" placeholder="e.g. 101" value="${escapeHtml(form.room)}"></div>`}
-        ${textField('Guest Name', 'guestName', 'e.g. Omar Saleh')}
+        <div class="parking-checks">
+          <label class="parking-check"><input type="checkbox" data-form="isVisitor" ${form.isVisitor ? 'checked' : ''}> Visitor (No Room #)</label>
+          <label class="parking-check"><input type="checkbox" data-form="isHod" ${form.isHod ? 'checked' : ''}> HOD</label>
+        </div>
+        ${form.isVisitor || form.isHod ? '' : `<div class="dmr-field"><label>Room Number</label><input data-form="room" inputmode="numeric" placeholder="e.g. 101" value="${escapeHtml(form.room)}"></div>`}
+        ${form.isHod ? textField('Position', 'position', 'e.g. Front Office Manager') : ''}
+        ${textField(form.isHod ? 'Employee Name' : 'Guest Name', 'guestName', form.isHod ? 'e.g. Sara Ali' : 'e.g. Omar Saleh')}
         <div class="dmr-row">
           ${textField('Registration No.', 'plate', 'e.g. ABC 1234')}
           ${textField('Car Model', 'carModel', 'e.g. Toyota Camry')}
@@ -233,7 +242,7 @@
     } else if (modal.type === 'checkout') {
       body = `
         <h3>Check Out - Spot ${id}</h3>
-        <div class="parking-guest">${spot.isVisitor ? 'VISITOR' : 'Room ' + escapeHtml(spot.room)}</div>
+        <div class="parking-guest">${escapeHtml(occupantTitle(spot))}</div>
         ${carRows(spot) ? `<div class="parking-details">${carRows(spot)}</div>` : ''}
         <div class="parking-info">
           <strong>Expected Check-out:</strong>
@@ -265,8 +274,10 @@
   function onModalInput(e){
     const key = e.target.dataset && e.target.dataset.form;
     if (!key) return;
-    if (key === 'isVisitor') {
-      form.isVisitor = e.target.checked;
+    if (key === 'isVisitor' || key === 'isHod') {
+      form[key] = e.target.checked;
+      if (key === 'isVisitor' && form.isVisitor) form.isHod = false;
+      if (key === 'isHod' && form.isHod) form.isVisitor = false;
       paintModal();
       return;
     }
@@ -298,7 +309,8 @@
     }
     const err = document.getElementById('parkErr');
     if (action === 'checkin') {
-      if (!form.isVisitor && !form.room.trim()) { err.textContent = 'Room Number required'; return; }
+      if (!form.isVisitor && !form.isHod && !form.room.trim()) { err.textContent = 'Room Number required'; return; }
+      if (form.isHod && !form.position.trim()) { err.textContent = 'Position required'; return; }
       if (form.colour === 'Other' && !form.colourOther.trim()) { err.textContent = 'Type the colour of the car'; return; }
       if (!form.date || !form.time) { err.textContent = 'Date and Time required'; return; }
     }
@@ -311,7 +323,9 @@
     let body = null;
     if (action === 'checkin') {
       body = {
-        room: form.room, isVisitor: form.isVisitor, date: form.date, time: form.time,
+        room: form.isHod ? '' : form.room, isVisitor: form.isVisitor, isHod: form.isHod,
+        position: form.isHod ? form.position : '',
+        date: form.date, time: form.time,
         guestName: form.guestName, plate: form.plate, carModel: form.carModel,
         carColour: form.colour === 'Other' ? form.colourOther.trim() : form.colour
       };
@@ -396,8 +410,9 @@
       ['Date & Time', log.date + ' ' + log.time],
       ['User', log.actor],
       ['Parking Spot', log.spotId],
-      ['Room Number', d.isVisitor ? 'VISITOR' : d.room],
-      ['Guest Name', d.guestName],
+      ['Room Number', d.isHod ? '' : (d.isVisitor ? 'VISITOR' : d.room)],
+      [d.isHod ? 'Employee Name' : 'Guest Name', d.guestName],
+      ['Position', d.isHod ? d.position : ''],
       ['Registration No.', d.plate],
       ['Car Model', d.carModel],
       ['Colour', d.carColour],

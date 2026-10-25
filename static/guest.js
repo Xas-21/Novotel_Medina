@@ -92,16 +92,16 @@
     if (!state || state.section !== 'guest') return '';
     if (state.view === 'archive') {
       queueMicrotask(loadArchive);
-      return `<div class="dmr-headline"><h1>Guest Relation Archive</h1></div><div class="dmr-sub">Guest relation reports by month</div><input type="date" id="archiveSearch" class="dmr-btn dmr-btn-ghost" style="padding:7px 12px;margin-bottom:12px;"><div id="guestArchive"><div class="dmr-empty">Loading archive…</div></div>`;
+      return `<div class="dmr-sub">Guest relation reports by month</div><input type="date" id="archiveSearch" class="dmr-btn dmr-btn-ghost" style="padding:7px 12px;margin-bottom:12px;"><div id="guestArchive"><div class="dmr-empty">Loading archive…</div></div>`;
     }
     if (state.view === 'analysis') {
       queueMicrotask(loadAnalysis);
-      return `<div class="dmr-headline"><h1>Guest Relation Analysis</h1></div><div class="dmr-sub">Pick a day, a week, a month, the year to date, or any from and to dates</div>${window.periodBar ? window.periodBar() : ''}<div id="guestAnalysis"><div class="dmr-empty">Loading analysis…</div></div>`;
+      return `<div class="dmr-sub">Pick a day, a week, a month, the year to date, or any from and to dates</div>${window.periodBar ? window.periodBar() : ''}<div id="guestAnalysis"><div class="dmr-empty">Loading analysis…</div></div>`;
     }
     const date = state.selectedDate;
     const token = ++loadToken;
     queueMicrotask(() => loadGuest(date, token));
-    return `<div class="dmr-headline"><h1>Guest Relation Report</h1><input type="date" id="dateInput" class="dmr-btn-ghost dmr-btn" style="padding:7px 12px;" value="${escapeHtml(date)}"></div><div id="guestBody"><div class="dmr-empty"><h3>Loading guest relation report…</h3></div></div>`;
+    return `<div class="dmr-headline"><input type="date" id="dateInput" class="dmr-btn-ghost dmr-btn" style="padding:7px 12px;margin-left:auto;" value="${escapeHtml(date)}"></div><div id="guestBody"><div class="dmr-empty"><h3>Loading guest relation report…</h3></div></div>`;
   }
 
   async function loadGuest(date, token){
@@ -548,7 +548,6 @@
     if (!el || !data) return;
     window.guestAnalysis = data;
     el.innerHTML = `
-      <p class="dmr-sub">${escapeHtml(data.startDate)} to ${escapeHtml(data.endDate)}</p>
       ${window.kpiBoard(guestTiers(data))}
       <div class="dmr-card dmr-chart-card"><h3>How guests were contacted</h3><div class="chart-box"><canvas id="guestChannels"></canvas></div></div>
       <div class="dmr-card dmr-chart-card"><h3>Scores (YTD)</h3><div class="chart-box"><canvas id="guestScores"></canvas></div></div>

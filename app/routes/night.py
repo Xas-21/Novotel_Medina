@@ -293,6 +293,14 @@ async def get_night_index(
     return results
 
 
+def _avg_occ(sold, available):
+    return round(sold / available * 100, 1) if available else None
+
+
+def _mean_rate(values):
+    return money(sum(values) / len(values)) if values else None
+
+
 @router.get("/analysis")
 async def get_night_analysis(
     date: str,
@@ -323,6 +331,10 @@ async def get_night_analysis(
     rooms = fb = me = ood = other = 0.0
     rooms_sold = 0.0
     rooms_available = 0
+    weekday_sold = weekday_available = 0.0
+    weekend_sold = weekend_available = 0.0
+    weekday_adr = []
+    weekend_adr = []
     filed = 0
     day = start_day
     while day <= report_date:
@@ -346,11 +358,22 @@ async def get_night_analysis(
             )
             occupancy.append(None if figures["occupancy"] is None else money(figures["occupancy"] * 100))
             loyalty.append(_num(row["all_members"]) if "all_members" in row.keys() else 0)
-            adr.append(None if figures["adr"] is None else money(figures["adr"]))
+            rate = None if figures["adr"] is None else money(figures["adr"])
+            adr.append(rate)
             revpar.append(None if figures["revpar"] is None else money(figures["revpar"]))
             rooms_daily.append(money(row["rooms_revenue"]))
             rooms_sold += row["rooms_occupied"]
             rooms_available += row["rooms_available"]
+            if day.weekday() in (3, 4):
+                weekend_sold += row["rooms_occupied"]
+                weekend_available += row["rooms_available"]
+                if rate is not None:
+                    weekend_adr.append(rate)
+            else:
+                weekday_sold += row["rooms_occupied"]
+                weekday_available += row["rooms_available"]
+                if rate is not None:
+                    weekday_adr.append(rate)
             filed += 1
             rooms += row["rooms_revenue"]
             fb += row["fb_revenue"]
@@ -386,7 +409,12 @@ async def get_night_analysis(
         "segments": [{"code": code, "rooms": by_code.get(code, 0)} for code in SEGMENT_CODES],
         "roomsSold": money(rooms_sold),
         "filedNights": filed,
-        "avgOccupancy": round(rooms_sold / rooms_available * 100, 1) if rooms_available else None,
+        "avgOccupancy": _avg_occ(rooms_sold, rooms_available),
+        "weekdayOccupancy": _avg_occ(weekday_sold, weekday_available),
+        "weekendOccupancy": _avg_occ(weekend_sold, weekend_available),
+        "avgAdr": _mean_rate(weekday_adr + weekend_adr),
+        "weekdayAdr": _mean_rate(weekday_adr),
+        "weekendAdr": _mean_rate(weekend_adr),
         "grandTotal": money(rooms + fb + me + ood + other),
     }
 

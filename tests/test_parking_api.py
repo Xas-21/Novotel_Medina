@@ -111,6 +111,26 @@ def test_visitor_needs_no_room_but_guests_do(api):
     assert res.status_code == 400
 
 
+def test_hod_check_in_records_the_position_and_skips_the_room(api):
+    client, _ = api
+    h = _headers("staff")
+    res = client.post("/api/parking/spots/B2-14/checkin", json={**CHECKIN, "room": "", "isHod": True}, headers=h)
+    assert res.status_code == 400 and res.json()["detail"] == "Position required"
+    both = {**CHECKIN, "room": "", "isHod": True, "isVisitor": True, "position": "Front Office Manager"}
+    assert client.post("/api/parking/spots/B2-14/checkin", json=both, headers=h).status_code == 400
+    spot = client.post("/api/parking/spots/B2-14/checkin", json={
+        **CHECKIN, "room": "", "isHod": True, "position": "Front Office Manager", "guestName": "Sara Ali",
+    }, headers=h).json()
+    assert spot["isHod"] is True and spot["isVisitor"] is False
+    assert (spot["position"], spot["guestName"], spot["room"]) == ("Front Office Manager", "Sara Ali", "")
+    freed = client.post("/api/parking/spots/B2-14/checkout", headers=h).json()
+    assert freed["isHod"] is False and freed["position"] == ""
+    came_in = client.get("/api/parking/logs", params={"spot": "B2-14"}, headers=h).json()["items"][-1]
+    assert came_in["action"] == "Checked IN (HOD)"
+    assert came_in["details"]["position"] == "Front Office Manager"
+    assert came_in["details"]["guestName"] == "Sara Ali"
+
+
 def test_a_taken_spot_cannot_be_checked_in_twice(api):
     client, _ = api
     h = _headers("staff")
@@ -239,7 +259,7 @@ def test_old_parking_tables_get_the_new_columns(tmp_path, monkeypatch):
     con = sqlite3.connect(data / "novotel.db")
     spot_cols = {r[1] for r in con.execute("PRAGMA table_info(parking_spots)")}
     log_cols = {r[1] for r in con.execute("PRAGMA table_info(parking_logs)")}
-    assert {"guest_name", "plate", "car_model", "car_colour", "oos_from", "oos_to"} <= spot_cols
+    assert {"guest_name", "plate", "car_model", "car_colour", "oos_from", "oos_to", "position", "is_hod"} <= spot_cols
     assert "details_json" in log_cols
     assert con.execute("SELECT room FROM parking_spots WHERE id = 'B2-1'").fetchone()[0] == "707"
     con.close()

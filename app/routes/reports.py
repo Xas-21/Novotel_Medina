@@ -400,6 +400,7 @@ async def get_analysis(
     section_fails["Staff Cafeteria"] = 0
     item_fail_counts: Dict[str, int] = {}
     item_notes: Dict[str, list] = {}
+    fail_list = []
     
     complaints_list = []
     incidents_list = []
@@ -437,6 +438,7 @@ async def get_analysis(
                     note = str(entry.get("comment") or "").strip()
                     if note:
                         item_notes.setdefault(item_key, []).append({"date": r_date, "text": note})
+                    fail_list.append({"date": r_date, "section": sec["title"], "item": label, "comment": note})
         
         for idx, entry in enumerate(cafeteria_items):
             if entry.get("status") is False:
@@ -448,6 +450,7 @@ async def get_analysis(
                 note = str(entry.get("comment") or "").strip()
                 if note:
                     item_notes.setdefault(item_key, []).append({"date": r_date, "text": note})
+                fail_list.append({"date": r_date, "section": "Staff Cafeteria", "item": label, "comment": note})
         
         for c in complaints:
             if c.get("complaint"):
@@ -508,6 +511,7 @@ async def get_analysis(
         "startDate": start_date,
         "endDate": end_date,
         "totalFail": total_fail,
+        "failList": fail_list,
         "totalNotesOpen": open_notes_count,
         "actionItems": action_items,
         "totalIncidents": len(incidents_list),

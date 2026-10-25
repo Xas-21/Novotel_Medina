@@ -272,8 +272,56 @@
     return y;
   }
 
+  // jsPDF's built-in fonts only encode Windows-1252; any other character makes it print the whole string spaced out and mis-measured.
+  const PDF_CP1252_EXTRA = '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ';
+  function pdfSafe(value) {
+    if (Array.isArray(value)) return value.map(pdfSafe);
+    if (typeof value !== 'string') return value;
+    return value
+      .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g, '')
+      .replace(/[\u2007\u202F]/g, ' ')
+      .replace(/[^\x00-\xFF]/g, ch => PDF_CP1252_EXTRA.includes(ch) ? ch : '?');
+  }
+  (function guardPdfText() {
+    const lib = window.jspdf;
+    if (!lib || !lib.jsPDF || lib.jsPDF.__pdfSafe) return;
+    class SafePDF extends lib.jsPDF {
+      constructor(...args) {
+        super(...args);
+        ['text', 'splitTextToSize', 'getTextWidth'].forEach(name => {
+          const original = this[name];
+          if (typeof original === 'function') this[name] = function (first, ...rest) { return original.call(this, pdfSafe(first), ...rest); };
+        });
+      }
+    }
+    SafePDF.__pdfSafe = true;
+    lib.jsPDF = SafePDF;
+  })();
+
+  async function pdfEvidence(doc, W, y, evidence) {
+    if (!evidence.length) return y;
+    y = pdfSectionHeading(doc, W, y, 'Inspection Photo Evidence');
+    y += 12;
+    for (const ev of evidence) {
+      if (y + 110 > 780) { doc.addPage(); y = 45; }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
+      doc.setTextColor(...NOVOTEL.brassDark);
+      doc.text(`${ev.section} — ${ev.label}`, 40, y); y += 11;
+      let px = 40, loaded = 0;
+      for (const p of ev.photos) {
+        const img = await loadImg(p);
+        if (!img) continue;
+        if (px + 90 > W - 40) { y += 96; px = 40; }
+        if (y + 90 > 770) { doc.addPage(); y = 45; }
+        try { doc.addImage(img, 'JPEG', px, y, 88, 88); px += 94; loaded++; } catch (e) {}
+      }
+      y += (loaded ? 98 : 3);
+    }
+    return y + 6;
+  }
+
   function pdfTable(doc, W, y, cols, rows) {
-    const x = 40, width = W - 80, rowH = 16, headerH = 16;
+    const x = 40, width = W - 80, rowH = 16, headerH = 16, lineH = 9.4;
     function drawHeader(cy) {
       doc.setFillColor(...NOVOTEL.brandBlue);
       doc.rect(x, cy, width, headerH, 'F');
@@ -290,27 +338,26 @@
     drawHeader(y);
     y += headerH;
     rows.forEach((row, ri) => {
-      // ponytail: compute wrapped lines just for row height, render with maxWidth
       doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
-      const lineCounts = cols.map(col => {
+      const cells = cols.map(col => {
         const txt = row[col.key] != null ? String(row[col.key]) : '';
-        return txt ? Math.max(doc.splitTextToSize(txt, col.w - 8).length, 1) : 1;
+        return txt ? doc.splitTextToSize(txt, col.align === 'center' ? col.w - 4 : col.w - 8) : [''];
       });
-      const dynRowH = Math.max(...lineCounts) === 1 ? rowH : (11 + Math.max(...lineCounts) * 5);
+      const lines = Math.max(...cells.map(cell => cell.length));
+      const dynRowH = rowH + (lines - 1) * lineH;
       if (y + dynRowH > 780) { doc.addPage(); y = 45; drawHeader(y); y += headerH; }
       const fill = row._fill || (ri % 2 === 0 ? NOVOTEL.white : NOVOTEL.rowAlt);
       doc.setFillColor(...fill);
       doc.rect(x, y, width, dynRowH, 'F');
       let cx = x;
-      cols.forEach(col => {
-        const key = col.key;
-        const txt = row[key] != null ? String(row[key]) : '';
-        const color = row[key + '_color'] || NOVOTEL.ink;
-        doc.setTextColor(...color);
+      cols.forEach((col, ci) => {
+        doc.setTextColor(...(row[col.key + '_color'] || NOVOTEL.ink));
         doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
-        const opts = col.align === 'center' ? {align:'center', maxWidth: col.w - 4} : {maxWidth: col.w - 8};
-        if (col.align === 'center') doc.text(txt, cx + col.w / 2, y + 10.5, opts);
-        else doc.text(txt, cx + 4, y + 10.5, opts);
+        cells[ci].forEach((line, li) => {
+          const ly = y + 10.5 + li * lineH;
+          if (col.align === 'center') doc.text(line, cx + col.w / 2, ly, {align:'center'});
+          else doc.text(line, cx + 4, ly);
+        });
         cx += col.w;
       });
       y += dynRowH;
@@ -467,43 +514,104 @@
     return view ? section + ' · ' + view : section;
   }
 
+  const dockable = window.matchMedia('(min-width: 1100px)');
+  let navPinned = localStorage.getItem('novotel_nav_pinned') === '1';
+
+  function navDocked() {
+    const root = document.getElementById('dmrRoot');
+    return !!(root && root.classList.contains('nav-docked'));
+  }
+
   function setNavOpen(open) {
     const root = document.getElementById('dmrRoot');
     const nav = document.getElementById('dmrNav');
     const btn = document.getElementById('menuBtn');
+    const pin = document.getElementById('navPin');
     const backdrop = document.getElementById('navBackdrop');
-    const narrow = window.matchMedia('(max-width: 900px)').matches;
-    if (!narrow) open = false;
-    if (root) root.classList.toggle('nav-open', open);
-    document.body.classList.toggle('nav-open', open);
+    const docked = open && navPinned && dockable.matches;
+    const floating = open && !docked;
+    if (root) {
+      root.classList.toggle('nav-open', open);
+      root.classList.toggle('nav-docked', docked);
+    }
+    document.body.classList.toggle('nav-open', floating);
     if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    if (backdrop) backdrop.hidden = !open;
-    if (nav) nav.inert = narrow && !open;
-    if (open) {
-      const closeBtn = document.getElementById('navClose');
-      if (closeBtn) closeBtn.focus();
-    } else if (btn && nav && nav.contains(document.activeElement)) {
+    if (pin) pin.setAttribute('aria-pressed', navPinned ? 'true' : 'false');
+    if (backdrop) backdrop.hidden = !floating;
+    if (nav) nav.inert = !open;
+    if (floating) {
+      const first = document.getElementById(dockable.matches ? 'navPin' : 'navClose');
+      if (first && !nav.contains(document.activeElement)) first.focus();
+    } else if (!open && btn && nav && nav.contains(document.activeElement)) {
       btn.focus();
     }
   }
 
+  function isDark() {
+    return document.documentElement.dataset.theme === 'dark';
+  }
+
+  function syncThemeButton() {
+    const btn = document.getElementById('themeBtn');
+    if (!btn) return;
+    const label = isDark() ? 'Light theme' : 'Dark theme';
+    btn.setAttribute('aria-pressed', isDark() ? 'true' : 'false');
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
+  }
+
+  function toggleTheme() {
+    const next = isDark() ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('novotel_theme', next);
+    syncThemeButton();
+    // Only views with charts need a redraw; re-rendering a report form would drop unsaved input.
+    if (state.view === 'analysis' || state.section === 'full') render();
+  }
+
+  function setProfileMenu(open) {
+    const btn = document.getElementById('profileBtn');
+    const menu = document.getElementById('profileMenu');
+    if (!btn || !menu) return;
+    menu.hidden = !open;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
   function bindNavDrawer() {
+    if (bindNavDrawer.done) return;
+    bindNavDrawer.done = true;
     const menuBtn = document.getElementById('menuBtn');
     const navClose = document.getElementById('navClose');
+    const navPin = document.getElementById('navPin');
     const backdrop = document.getElementById('navBackdrop');
+    const profileBtn = document.getElementById('profileBtn');
+    const profileMenu = document.getElementById('profileMenu');
+    const themeBtn = document.getElementById('themeBtn');
     if (menuBtn) menuBtn.onclick = () => {
       const root = document.getElementById('dmrRoot');
       setNavOpen(!(root && root.classList.contains('nav-open')));
     };
     if (navClose) navClose.onclick = () => setNavOpen(false);
+    if (navPin) navPin.onclick = () => {
+      navPinned = !navPinned;
+      localStorage.setItem('novotel_nav_pinned', navPinned ? '1' : '0');
+      setNavOpen(true);
+    };
     if (backdrop) backdrop.onclick = () => setNavOpen(false);
+    if (themeBtn) themeBtn.onclick = toggleTheme;
+    if (profileBtn) profileBtn.onclick = () => setProfileMenu(profileMenu.hidden);
+    if (profileMenu) profileMenu.addEventListener('click', () => setProfileMenu(false));
+    document.addEventListener('click', (e) => {
+      if (profileBtn && !profileBtn.contains(e.target) && profileMenu && !profileMenu.contains(e.target)) setProfileMenu(false);
+    });
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') setNavOpen(false);
+      if (e.key !== 'Escape') return;
+      setProfileMenu(false);
+      if (!navDocked()) setNavOpen(false);
     });
-    window.addEventListener('resize', () => {
-      if (!window.matchMedia('(max-width: 900px)').matches) setNavOpen(false);
-    });
-    setNavOpen(false);
+    dockable.addEventListener('change', () => setNavOpen(dockable.matches && navPinned));
+    syncThemeButton();
+    setNavOpen(dockable.matches && navPinned);
   }
 
   const IDLE_MS = 15 * 60 * 1000;
@@ -619,6 +727,9 @@
     const token = state.token;
     state.token = "";
     state.user = null;
+    navPinned = false;
+    localStorage.removeItem('novotel_nav_pinned');
+    setNavOpen(false);
     localStorage.removeItem('novotel_token');
     localStorage.removeItem('novotel_active');
     if (token) {
@@ -685,7 +796,12 @@
     const navName = document.getElementById('navName');
     const navTitle = document.getElementById('navTitle');
     if (navName) navName.textContent = fullName(state.user);
-    if (navTitle) navTitle.textContent = state.user ? (state.user.title || '') : '';
+    if (navTitle) navTitle.textContent = state.user ? (state.user.title || state.user.role || '') : '';
+    const u = state.user || {};
+    const welcome = document.getElementById('navWelcome');
+    if (welcome) welcome.textContent = 'Hi, ' + (u.first_name || u.username || '');
+    const avatar = document.getElementById('profileAvatar');
+    if (avatar) avatar.textContent = ((u.first_name || u.username || '?').charAt(0) + (u.last_name || '').charAt(0)).toUpperCase();
     const crumb = document.getElementById('mobileCrumb');
     if (crumb) crumb.textContent = pageLabel();
 
@@ -711,6 +827,8 @@
 
     const main = document.getElementById('dmrMain');
     if (!main) return;
+    const topbarPeriod = document.getElementById('topbarPeriod');
+    if (topbarPeriod) topbarPeriod.replaceChildren();
 
     if (state.view === 'users') {
       main.innerHTML = renderUsers();
@@ -736,6 +854,7 @@
       loadAnalysis();
     }
 
+    placePeriodBar();
     attachHandlers();
     renderOverlays();
   }
@@ -896,8 +1015,7 @@
     const dutyWritable = canWrite(state.user && state.user.role, 'duty');
     return `
     <div class="dmr-headline">
-      <h1>Duty Manager Report</h1>
-      <input type="date" id="dateInput" class="dmr-btn-ghost dmr-btn" style="padding:7px 12px;" value="${state.selectedDate}">
+      <input type="date" id="dateInput" class="dmr-btn-ghost dmr-btn" style="padding:7px 12px;margin-left:auto;" value="${state.selectedDate}">
     </div>
     <div class="dmr-sub">
       ${fmtDate(state.selectedDate)} ·
@@ -938,7 +1056,7 @@
       ${renderDynAcc('roomsInspection', 'Rooms Inspection', r.roomsInspection, [
           {key:'room', ph:'Room #', type:'text', w:1},
           {key:'status', type:'toggle'},
-          {key:'comment', ph:'Inspection comment / findings', type:'text', w:2}
+          {key:'comment', ph:'Inspection comment / findings', type:'text', w:2, notes:true}
         ])}
 
       <details class="dmr-acc" data-acc="guestExp" ${state.openAcc.has('guestExp')?'open':''}>
@@ -948,7 +1066,7 @@
           ${dynListHtml('courtesyCalls', r.courtesyCalls, [
             {key:'room', ph:'Room #', type:'text', w:1},
             {key:'impression', type:'toggle'},
-            {key:'comment', ph:'Guest feedback & remarks', type:'text', w:2}
+            {key:'comment', ph:'Guest feedback & remarks', type:'text', w:2, notes:true}
           ])}
           <button class="dmr-btn dmr-btn-ghost dmr-btn-sm dmr-add-row-btn" data-add-row="courtesyCalls">+ Add Room Call</button>
 
@@ -1024,6 +1142,32 @@
     `;
   }
 
+  function noteLines(text) {
+    return String(text || '').split('\n');
+  }
+
+  function noteInputsHtml(text, kind, placeholder, skipFirst) {
+    const lines = noteLines(text).map((line, i) => {
+      if (skipFirst && i === 0) return '';
+      return `<div class="dmr-note-line">
+        <input type="text" class="dmr-check-comment" placeholder="${i ? 'Additional note' : placeholder}" value="${escapeHtml(line)}" data-${kind}-note="${i}">
+        ${i ? `<button type="button" class="dmr-note-del" data-${kind}-note-del="${i}" title="Remove note">✕</button>` : ''}
+      </div>`;
+    }).join('');
+    return lines + `<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm dmr-note-add" data-${kind}-note-add="1">+ Add note</button>`;
+  }
+
+  function dynPhotosHtml(photos) {
+    return `<div class="dmr-check-photos">
+      ${photos.map((p, i) => `
+        <div class="dmr-check-photo">
+          <img src="${p}" class="dmr-check-photo-img" data-chk-photo="${p}">
+          <button type="button" class="dmr-photo-del" data-dyn-photo-del="${i}" title="Remove photo">✕</button>
+        </div>`).join('')}
+      ${photos.length < 2 ? `<button class="dmr-btn dmr-btn-ghost dmr-btn-sm dmr-photo-add-btn" data-dyn-photo-add="1" type="button">+ Add Photo (${photos.length}/2)</button>` : ''}
+    </div>`;
+  }
+
   function checklistRowHtml(sectionKey, idx, label, desc, data) {
     const photos = (data && data.photos) || [];
     const showDetail = data.status === false || (data.comment && data.comment.length > 0) || photos.length > 0;
@@ -1039,7 +1183,7 @@
       </div>
       ${showDetail ? `
         <div class="dmr-check-detail">
-          <input type="text" class="dmr-check-comment" placeholder="Remark / reason for failure" value="${escapeHtml(data.comment||'')}" data-chk-comment="1">
+          ${noteInputsHtml(data.comment, 'chk', 'Remark / reason for failure')}
           <div class="dmr-check-photos">
             ${photos.map((p, i) => `
               <div class="dmr-check-photo">
@@ -1073,9 +1217,18 @@
 
   function dynListHtml(listKey, rows, fields) {
     if (!rows || rows.length === 0) return '<div class="dmr-sub" style="margin:8px 0;">No entries recorded yet.</div>';
-    return rows.map((row, idx) => `
+    const toggle = fields.find(f => f.type === 'toggle');
+    const notesField = fields.find(f => f.notes);
+    return rows.map((row, idx) => {
+      const photos = row.photos || [];
+      const showDetail = toggle && notesField && (row[toggle.key] === false || photos.length > 0 || noteLines(row[notesField.key]).length > 1);
+      return `
       <div class="dmr-dyn-row" data-dyn-list="${listKey}" data-dyn-idx="${idx}">
         ${fields.map(f => {
+          if (f.notes) {
+            const style = f.w ? `flex-grow:${f.w};` : '';
+            return `<input style="${style}" type="text" placeholder="${f.ph||''}" value="${escapeHtml(noteLines(row[f.key])[0])}" data-dyn-note="0">`;
+          }
           if (f.type === 'toggle') {
             const v = row[f.key];
             return `
@@ -1093,7 +1246,9 @@
           return `<input style="${style}" type="${typeAttr}" placeholder="${f.ph||''}" value="${escapeHtml(row[f.key]||'')}" data-dyn-field="${f.key}">`;
         }).join('')}
         <button class="dmr-dyn-del" data-dyn-del="1">✕</button>
-      </div>`).join('');
+        ${showDetail ? `<div class="dmr-dyn-detail">${noteInputsHtml(row[notesField.key], 'dyn', '', true)}${dynPhotosHtml(photos)}</div>` : ''}
+      </div>`;
+    }).join('');
   }
 
   function renderDynAcc(listKey, title, rows, fields) {
@@ -1184,6 +1339,37 @@
         </details>`;
       }).join('')}
     </div>`;
+  }
+
+  function dashActionRows(items) {
+    const rows = items || [];
+    if (!rows.length) return '<p class="dash-empty">No action items in this period.</p>';
+    const writable = canWrite(state.user && state.user.role, 'duty');
+    return `
+    <div class="dash-list-head"><span>Item</span><span>Department</span><span>Date</span><span>Status</span></div>
+    ${rows.map(item => {
+      const st = statusMeta(item.status);
+      const date = item.date || item.report_date || '';
+      return `
+      <details class="dash-action">
+        <summary>
+          <span>${escapeHtml(item.text || '')}</span>
+          <span>${escapeHtml(item.department || '')}</span>
+          <span>${escapeHtml(date)}</span>
+          <span><span class="dash-pill ${st.cls}">${st.label}</span></span>
+        </summary>
+        <div class="dmr-action-body">
+          <div class="dmr-sub">Logged by ${escapeHtml(item.manager || '')}${item.carried ? ' · Still open from an earlier report' : ''}</div>
+          ${noteTimelineHtml(item)}
+          <div class="dmr-action-tools">
+            <select data-action-status="${escapeHtml(item.id)}" ${writable ? '' : 'disabled'}>
+              ${STATUSES.map(s => `<option value="${s.v}" ${s.v===item.status?'selected':''}>${s.label}</option>`).join('')}
+            </select>
+            <button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-review-date="${escapeHtml(date)}">Open report</button>
+          </div>
+        </div>
+      </details>`;
+    }).join('')}`;
   }
 
   // ---------- Archive View ----------
@@ -1278,7 +1464,7 @@
   function ensurePeriod(){
     const today = todayStr();
     if (!state.periodTo) state.periodTo = state.selectedDate || today;
-    if (!state.periodMode || !state.periodFrom) applyPeriod(state.periodMode || 'week');
+    if (!state.periodMode || !state.periodFrom) applyPeriod(state.periodMode || (state.section === 'full' ? 'month' : 'week'));
   }
 
   function periodBar(){
@@ -1286,17 +1472,32 @@
     const mode = state.periodMode;
     const button = (id, label) => `<button type="button" class="dmr-btn ${mode === id ? 'dmr-btn-primary' : 'dmr-btn-ghost'}" data-period="${id}">${label}</button>`;
     return `
-      <div class="dmr-toolbar">
-        ${button('today', 'Today')}
-        ${button('week', 'Week')}
-        ${button('month', 'Month')}
-        ${button('ytd', 'YTD')}
-      </div>
-      <div class="dmr-row" style="margin:12px 0;">
-        <div class="dmr-field"><label>From</label><input type="date" id="periodFrom" value="${state.periodFrom}"></div>
-        <div class="dmr-field"><label>To</label><input type="date" id="periodTo" value="${state.periodTo}"></div>
-      </div>`;
+      <div class="period-home"><div class="dmr-period" id="periodBar">
+        <div class="dmr-toolbar">
+          ${button('today', 'Today')}
+          ${button('week', 'Week')}
+          ${button('month', 'Month')}
+          ${button('ytd', 'YTD')}
+        </div>
+        <div class="dmr-row period-dates">
+          <svg class="ico period-cal" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+          <div class="dmr-field"><label for="periodFrom">From</label><input type="date" id="periodFrom" value="${state.periodFrom}"></div>
+          <div class="dmr-field"><label for="periodTo">To</label><input type="date" id="periodTo" value="${state.periodTo}"></div>
+        </div>
+      </div></div>`;
   }
+
+  const wideScreen = window.matchMedia('(min-width: 768px)');
+
+  function placePeriodBar(){
+    const slot = document.getElementById('topbarPeriod');
+    const home = document.querySelector('#dmrMain .period-home');
+    const bar = document.getElementById('periodBar');
+    if (!slot || !home || !bar) return;
+    const target = wideScreen.matches ? slot : home;
+    if (bar.parentNode !== target) target.appendChild(bar);
+  }
+  wideScreen.addEventListener('change', placePeriodBar);
 
   function periodQuery(){
     ensurePeriod();
@@ -1438,7 +1639,6 @@
 
   function renderArchive() {
     return `
-    <div class="dmr-headline"><h1>Archive</h1></div>
     <div class="dmr-sub">Complete historical archive of Duty Manager daily reports</div>
     <input type="date" id="archiveSearch" class="dmr-btn dmr-btn-ghost" style="padding:7px 12px;margin-bottom:12px;">
     <div id="archiveList"><div class="dmr-card"><div class="dmr-empty">Loading archive…</div></div></div>`;
@@ -1538,15 +1738,23 @@
     return n.toLocaleString('en-US', { maximumFractionDigits: digits == null ? 0 : digits });
   }
 
+  function kpiInk(color){
+    if (!isDark()) return color;
+    return '#' + rgbOf(color).map(v => Math.round(v + (255 - v) * 0.5).toString(16).padStart(2, '0')).join('');
+  }
+
   function kpiFigure(card, cls){
     const shown = card.value == null || card.value === '' ? '—' : String(card.value);
     const color = card.color || KPI_TONES[card.tone] || KPI_TONES.indigo;
     const unit = card.unit && shown !== '—' ? `<span class="kpi-unit">${escapeHtml(card.unit)}</span>` : '';
-    return `<div class="${cls}" style="color:${color}">${escapeHtml(shown)}${unit}</div>`;
+    return `<div class="${cls}" style="color:${card.fill ? color : kpiInk(color)}">${escapeHtml(shown)}${unit}</div>`;
   }
 
   function kpiHero(card){
-    const badge = card.badge ? `<span class="kpi-badge" style="color:${card.badgeColor || KPI_TONES[card.tone] || KPI_TONES.indigo}">${escapeHtml(card.badge)}</span>` : '';
+    if (card.parts) {
+      return `<div class="kpi-card kpi-hero kpi-occ"><div class="kpi-occ-row">${card.parts.map(part => `<div class="kpi-occ-part"><div class="kpi-label">${escapeHtml(part.label)}</div><div class="kpi-figure kpi-figure-sm" style="color:${kpiInk(part.color)}">${escapeHtml(part.value)}${part.unit ? `<span class="kpi-unit">${escapeHtml(part.unit)}</span>` : ''}</div><div class="kpi-occ-hint">${escapeHtml(part.hint)}</div></div>`).join('')}</div><div class="kpi-note">${escapeHtml(card.note || '')}</div></div>`;
+    }
+    const badge = card.badge ? `<span class="kpi-badge" style="color:${kpiInk(card.badgeColor || KPI_TONES[card.tone] || KPI_TONES.indigo)}">${escapeHtml(card.badge)}</span>` : '';
     return `<div class="kpi-card kpi-hero"><div class="kpi-top"><span class="kpi-label">${escapeHtml(card.label)}</span>${badge}</div>${kpiFigure(card, 'kpi-figure')}<div class="kpi-note">${escapeHtml(card.note || '')}</div></div>`;
   }
 
@@ -1604,6 +1812,38 @@
     }, extra || {});
   }
 
+  function nightOccupancyCard(overall, weekday, weekend){
+    const part = (label, hint, value) => {
+      const n = Number(value);
+      const has = value != null && value !== '' && Number.isFinite(n);
+      return { label: label, hint: hint, value: has ? kpiNumber(n, 1) + '%' : '—', color: has ? occupancyCss(n) : KPI_TONES.indigo };
+    };
+    return {
+      parts: [
+        part('Avg Occupancy %', 'All filed nights', overall),
+        part('Week days Avg Occupancy', 'Saturday – Wednesday', weekday),
+        part('Weekend Avg Occupancy', 'Thursday & Friday', weekend)
+      ],
+      note: 'Rooms sold ÷ rooms available, filed nights'
+    };
+  }
+
+  function nightAdrCard(overall, weekday, weekend){
+    const part = (label, hint, value) => {
+      const n = Number(value);
+      const has = value != null && value !== '' && Number.isFinite(n);
+      return { label: label, hint: hint, value: has ? kpiNumber(n) : '—', unit: has ? 'SAR' : '', color: KPI_TONES.teal };
+    };
+    return {
+      parts: [
+        part('Avg ADR', 'All filed nights', overall),
+        part('Week days Avg ADR', 'Saturday – Wednesday', weekday),
+        part('Weekend Avg ADR', 'Thursday & Friday', weekend)
+      ],
+      note: 'Average of each filed night\'s room rate'
+    };
+  }
+
   function periodDays(from, to){
     if (!from || !to) return 0;
     const start = new Date(from + 'T00:00:00');
@@ -1652,11 +1892,15 @@
     return tiers.filter(tier => tier.cards && tier.cards.length).map(tier => {
       const kind = tier.kind || 'hero';
       const max = kind === 'hero' ? 3 : (kind === 'pair' ? 3 : 5);
-      const cols = Math.min(tier.cards.length, max);
+      const cards = tier.cards.filter(card => !card.parts);
+      const splits = tier.cards.filter(card => card.parts);
+      const cols = Math.min(Math.max(cards.length, 1), max);
       const cardW = (inner - gap * (cols - 1)) / cols;
       const cardH = kind === 'hero' ? 70 : (kind === 'pair' ? 96 : 64);
-      const rows = Math.ceil(tier.cards.length / cols);
-      return { tier: tier, kind: kind, cols: cols, cardW: cardW, cardH: cardH, height: 14 + rows * cardH + (rows - 1) * gap };
+      const rows = cards.length ? Math.ceil(cards.length / cols) : 0;
+      const splitH = 78;
+      const height = 14 + rows * cardH + Math.max(0, rows - 1) * gap + splits.length * (splitH + gap);
+      return { tier: tier, kind: kind, cols: cols, cardW: cardW, cardH: cardH, splitH: splitH, splits: splits, cards: cards, height: height };
     });
   }
 
@@ -1783,7 +2027,24 @@
     pdfKpiText(doc, kpiNumber(open) + ' ' + (card.openWord || 'pending'), barX + barW, y + 89, 6.3, [185, 28, 28], 'bold', { align: 'right' });
   }
 
-  function pdfKpiBoard(doc, W, y, tiers){
+  function pdfKpiOccupancy(doc, card, x, y, w, h){
+    pdfKpiCard(doc, x, y, w, h);
+    const pad = 8;
+    const partW = (w - pad * 2) / card.parts.length;
+    card.parts.forEach((part, i) => {
+      const px = x + pad + i * partW;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(30, 41, 59);
+      doc.text(doc.splitTextToSize(part.label, partW - 8).slice(0, 2), px + partW / 2, y + 14, { align: 'center' });
+      pdfKpiText(doc, part.unit && part.value !== '—' ? part.value + ' ' + part.unit : part.value, px + partW / 2, y + 40, 13, pdfRgb(part.color), 'bold', { align: 'center' });
+      pdfKpiText(doc, part.hint, px + partW / 2, y + 52, 6.2, [100, 116, 139], 'normal', { align: 'center' });
+    });
+    pdfKpiDivider(doc, x + pad, y + h - 16, w - pad * 2);
+    pdfKpiNote(doc, card.note, x + pad, y + h - 6, w - pad * 2, 6.2, 1);
+  }
+
+  function pdfKpiBoard(doc, W, y, tiers, opts){
     const pad = 12;
     const left = 40;
     const width = W - 80;
@@ -1791,35 +2052,64 @@
     const layout = pdfKpiLayout(tiers, inner);
     if (!layout.length) return y;
     const tierGap = 12;
-    const height = pad * 2 + layout.reduce((sum, item) => sum + item.height, 0) + tierGap * (layout.length - 1);
-    if (y + height > 790) { doc.addPage(); y = 45; }
-    doc.setFillColor(248, 250, 252);
-    doc.setDrawColor(226, 232, 240);
-    doc.setLineWidth(0.7);
-    doc.roundedRect(left, y, width, height, 8, 8, 'FD');
-    let cy = y + pad;
-    layout.forEach((item, t) => {
-      pdfKpiText(doc, String(t + 1).padStart(2, '0') + '. ' + item.tier.title, left + pad, cy + 7, 9, [15, 23, 42], 'bold');
-      const top = cy + 14;
-      const draw = item.kind === 'pair' ? pdfKpiPair : (item.kind === 'compact' ? pdfKpiCompact : pdfKpiHero);
-      item.tier.cards.forEach((card, i) => {
-        const col = i % item.cols;
-        const row = Math.floor(i / item.cols);
-        draw(doc, card, left + pad + col * (item.cardW + 8), top + row * (item.cardH + 8), item.cardW, item.cardH);
+    const boxHeight = items => pad * 2 + items.reduce((sum, item) => sum + item.height, 0) + tierGap * (items.length - 1);
+    const chunks = [];
+    if (opts && opts.split) {
+      let room = 790 - y;
+      let chunk = [];
+      layout.forEach(item => {
+        if (chunk.length && boxHeight(chunk.concat(item)) > room) {
+          chunks.push(chunk);
+          chunk = [item];
+          room = 790 - 45;
+        } else {
+          chunk.push(item);
+        }
       });
-      cy += item.height + tierGap;
+      chunks.push(chunk);
+    } else {
+      chunks.push(layout);
+    }
+    let number = 0;
+    chunks.forEach((items, c) => {
+      const height = boxHeight(items);
+      if (c > 0 || y + height > 790) { doc.addPage(); y = 45; }
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.7);
+      doc.roundedRect(left, y, width, height, 8, 8, 'FD');
+      let cy = y + pad;
+      items.forEach(item => {
+        number += 1;
+        pdfKpiText(doc, String(number).padStart(2, '0') + '. ' + item.tier.title, left + pad, cy + 7, 9, [15, 23, 42], 'bold');
+        let rowTop = cy + 14;
+        let col = 0;
+        const draw = item.kind === 'pair' ? pdfKpiPair : (item.kind === 'compact' ? pdfKpiCompact : pdfKpiHero);
+        item.tier.cards.forEach(card => {
+          if (card.parts) {
+            if (col !== 0) { rowTop += item.cardH + 8; col = 0; }
+            pdfKpiOccupancy(doc, card, left + pad, rowTop, inner, item.splitH);
+            rowTop += item.splitH + 8;
+            return;
+          }
+          draw(doc, card, left + pad + col * (item.cardW + 8), rowTop, item.cardW, item.cardH);
+          col += 1;
+          if (col >= item.cols) { col = 0; rowTop += item.cardH + 8; }
+        });
+        cy += item.height + tierGap;
+      });
+      y += height + 14;
     });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     doc.setTextColor(35, 48, 61);
     doc.setDrawColor(0, 0, 0);
     doc.setLineWidth(0.2);
-    return y + height + 14;
+    return y;
   }
 
   function renderAnalysis() {
     return `
-    <div class="dmr-headline"><h1>Operations & Trend Analysis</h1></div>
     <div class="dmr-sub">Pick a day, a week, a month, the year to date, or any from and to dates</div>
     ${periodBar()}
     <div id="analysisBody"><div class="dmr-empty">Computing analysis…</div></div>`;
@@ -1947,7 +2237,6 @@
 
   function renderSettings() {
     return `
-    <div class="dmr-headline"><h1>Settings</h1></div>
     <div class="dmr-sub">Hotel inventory used for night occupancy, ADR, and RevPAR</div>
     <div class="dmr-card user-form-card">
       <div class="dmr-field">
@@ -1968,7 +2257,6 @@
   // ---------- Users Management (admin only) ----------
   function renderUsers() {
     return `
-    <div class="dmr-headline"><h1>User Management</h1></div>
     <div class="dmr-sub">Create and manage duty manager accounts</div>
 
     <div class="dmr-card user-form-card">
@@ -2163,7 +2451,7 @@
         const ctx = chart.ctx;
         ctx.save();
         ctx.globalCompositeOperation = 'destination-over';
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = pdfChartPass || !isDark() ? '#ffffff' : getComputedStyle(document.documentElement).getPropertyValue('--surface').trim();
         ctx.fillRect(0, 0, chart.width, chart.height);
         ctx.restore();
       }
@@ -2187,7 +2475,10 @@
     if (!window.Chart || window.Chart.__pdfLook) return;
     window.Chart.register({
       id: 'pdfLook',
-      beforeInit(chart) { if (pdfChartPass) stylePdfChart(chart); },
+      beforeInit(chart) {
+        if (pdfChartPass) stylePdfChart(chart);
+        else if (isDark()) styleDarkChart(chart);
+      },
       afterDatasetsDraw(chart) { if (pdfChartPass) drawPdfLabels(chart); }
     });
     window.Chart.__pdfLook = true;
@@ -2240,6 +2531,24 @@
     }
     if (Math.abs(n - Math.round(n)) < 0.05) return whole(n);
     return (Math.round(n * 10) / 10).toLocaleString('en-US');
+  }
+
+  function styleDarkChart(chart){
+    const cfg = chart.config;
+    const opts = cfg.options || (cfg.options = {});
+    const ink = '#A9B0D6';
+    const legend = opts.plugins && opts.plugins.legend;
+    if (legend && legend.labels) legend.labels = Object.assign({}, legend.labels, { color: ink });
+    Object.values(opts.scales || {}).forEach(axis => {
+      if (!axis) return;
+      axis.ticks = Object.assign({}, axis.ticks, { color: ink });
+      if (axis.grid && axis.grid.display !== false) axis.grid = Object.assign({}, axis.grid, { color: 'rgba(255,255,255,0.08)' });
+      if (axis.title) axis.title = Object.assign({}, axis.title, { color: ink });
+    });
+    if (cfg.type === 'doughnut' || cfg.type === 'pie') {
+      const surface = getComputedStyle(document.documentElement).getPropertyValue('--surface').trim();
+      ((cfg.data && cfg.data.datasets) || []).forEach(ds => { ds.borderColor = surface; });
+    }
   }
 
   function stylePdfChart(chart){
@@ -2796,43 +3105,26 @@
       y += 8;
     });
 
-    // Inspection photo evidence (failed items)
     const evidence = [];
     AREA_SECTIONS.forEach(sec => {
       sec.items.forEach((it, idx) => {
         const e = (r.checklists[sec.key] && r.checklists[sec.key][idx]) || {};
-        if (e.status === false && e.photos && e.photos.length) {
+        if (e.photos && e.photos.length) {
           evidence.push({ section: sec.title, label: (typeof it === 'string' ? it : it.label), photos: e.photos });
         }
       });
     });
     CAFETERIA_ITEMS.forEach((label, idx) => {
       const e = r.cafeteriaItems && r.cafeteriaItems[idx] ? r.cafeteriaItems[idx] : {};
-      if (e.status === false && e.photos && e.photos.length) {
-        evidence.push({ section: 'Staff Cafeteria', label: label, photos: e.photos });
-      }
+      if (e.photos && e.photos.length) evidence.push({ section: 'Staff Cafeteria', label: label, photos: e.photos });
     });
-    if (evidence.length) {
-      y = pdfSectionHeading(doc, W, y, 'Inspection Photo Evidence');
-      y += 12; // gap between heading bar and first photo label
-      for (const ev of evidence) {
-        const photoHeight = ev.photos.length ? 98 : 3; // label + photo(s) or label only
-        if (y + 11 + photoHeight > 780) { doc.addPage(); y = 45; }
-        doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
-        doc.setTextColor(...NOVOTEL.brassDark);
-        doc.text(`${ev.section} — ${ev.label}`, 40, y); y += 11;
-        let px = 40, loaded = 0;
-        for (const p of ev.photos) {
-          const img = await loadImg(p);
-          if (!img) continue;
-          if (px + 90 > W - 40) { y += 96; px = 40; }
-          if (y + 90 > 770) { doc.addPage(); y = 45; }
-          try { doc.addImage(img, 'JPEG', px, y, 88, 88); px += 94; loaded++; } catch(e) {}
-        }
-        y += (loaded ? 98 : 3);
-      }
-      y += 6;
-    }
+    (r.roomsInspection || []).forEach(row => {
+      if (row.photos && row.photos.length) evidence.push({ section: 'Rooms Inspection', label: 'Room ' + (row.room || '—'), photos: row.photos });
+    });
+    (r.courtesyCalls || []).forEach(row => {
+      if (row.photos && row.photos.length) evidence.push({ section: 'Courtesy Calls', label: 'Room ' + (row.room || '—'), photos: row.photos });
+    });
+    y = await pdfEvidence(doc, W, y, evidence);
 
     // Rooms inspection
     if (r.roomsInspection && r.roomsInspection.length) {
@@ -3134,8 +3426,14 @@
         }
         if (!state.report) return;
         const [secKey, idxStr] = target;
-        const arr = secKey === 'cafeteriaItems' ? state.report.cafeteriaItems : state.report.checklists[secKey];
-        const item = arr[parseInt(idxStr)];
+        let item;
+        if (secKey === 'dyn') {
+          item = (state.report[target[1]] || [])[parseInt(target[2], 10)];
+        } else {
+          const arr = secKey === 'cafeteriaItems' ? state.report.cafeteriaItems : state.report.checklists[secKey];
+          item = arr[parseInt(idxStr)];
+        }
+        if (!item) return;
         if (!item.photos) item.photos = [];
         if (item.photos.length >= 2) { showToast('Maximum 2 photos per item'); return; }
         showToast('Uploading photo…');
@@ -3147,7 +3445,7 @@
     document.querySelectorAll('[data-view]').forEach(b => {
       b.onclick = () => {
         goTo(b.dataset.section || state.section, b.dataset.view);
-        setNavOpen(false);
+        if (!navDocked()) setNavOpen(false);
         render();
       };
     });
@@ -3207,8 +3505,22 @@
           render(); queueSave();
         };
       });
-      const commentInput = row.querySelector('[data-chk-comment]');
-      if (commentInput) commentInput.oninput = () => { arr[idx].comment = commentInput.value; queueSave(); };
+      row.querySelectorAll('[data-chk-note]').forEach(inp => {
+        inp.oninput = () => {
+          arr[idx].comment = Array.from(row.querySelectorAll('[data-chk-note]')).map(el => el.value).join('\n');
+          queueSave();
+        };
+      });
+      const noteAdd = row.querySelector('[data-chk-note-add]');
+      if (noteAdd) noteAdd.onclick = () => { arr[idx].comment = (arr[idx].comment || '') + '\n'; render(); queueSave(); };
+      row.querySelectorAll('[data-chk-note-del]').forEach(btn => {
+        btn.onclick = () => {
+          const lines = noteLines(arr[idx].comment);
+          lines.splice(parseInt(btn.dataset.chkNoteDel, 10), 1);
+          arr[idx].comment = lines.join('\n');
+          render(); queueSave();
+        };
+      });
     });
 
     // Checklist photo add / remove / view
@@ -3258,6 +3570,33 @@
           const field = btn.dataset.dynToggle;
           const want = btn.classList.contains('ok');
           dataRow[field] = dataRow[field] === want ? null : want;
+          render(); queueSave();
+        };
+      });
+      row.querySelectorAll('[data-dyn-note]').forEach(inp => {
+        inp.oninput = () => {
+          dataRow.comment = Array.from(row.querySelectorAll('[data-dyn-note]')).map(el => el.value).join('\n');
+          queueSave();
+        };
+      });
+      const dynNoteAdd = row.querySelector('[data-dyn-note-add]');
+      if (dynNoteAdd) dynNoteAdd.onclick = () => { dataRow.comment = (dataRow.comment || '') + '\n'; render(); queueSave(); };
+      row.querySelectorAll('[data-dyn-note-del]').forEach(btn => {
+        btn.onclick = () => {
+          const lines = noteLines(dataRow.comment);
+          lines.splice(parseInt(btn.dataset.dynNoteDel, 10), 1);
+          dataRow.comment = lines.join('\n');
+          render(); queueSave();
+        };
+      });
+      const dynPhotoAdd = row.querySelector('[data-dyn-photo-add]');
+      if (dynPhotoAdd) dynPhotoAdd.onclick = () => {
+        state.photoTarget = ['dyn', listKey, String(idx)];
+        document.getElementById('checklistPhotoInput').click();
+      };
+      row.querySelectorAll('[data-dyn-photo-del]').forEach(btn => {
+        btn.onclick = () => {
+          if (dataRow.photos) dataRow.photos.splice(parseInt(btn.dataset.dynPhotoDel, 10), 1);
           render(); queueSave();
         };
       });
@@ -3502,7 +3841,8 @@
       roomsInspection: Array.isArray(saved && saved.roomsInspection) ? saved.roomsInspection.map(row => ({
         room: (row && row.room) || '',
         status: row && row.status === true ? true : (row && row.status === false ? false : null),
-        comment: (row && row.comment) || ''
+        comment: (row && row.comment) || '',
+        photos: Array.isArray(row && row.photos) ? row.photos.slice(0, 2) : []
       })) : [],
       cafeteriaMealTime: (saved && saved.cafeteriaMealTime) || '',
       cafeteriaTime: (saved && saved.cafeteriaTime) || '',
@@ -3568,7 +3908,7 @@
       ${renderDynAcc('roomsInspection', 'Rooms Inspection', data.roomsInspection, [
         {key:'room', ph:'Room #', type:'text', w:1},
         {key:'status', type:'toggle'},
-        {key:'comment', ph:'Inspection comment / findings', type:'text', w:2}
+        {key:'comment', ph:'Inspection comment / findings', type:'text', w:2, notes:true}
       ])}
       <details class="dmr-acc" data-acc="cafeteria" ${state.openAcc.has('cafeteria')?'open':''}>
         <summary><span>Staff Cafeteria Audit</span><span class="arrow">▾</span></summary>
@@ -3654,16 +3994,17 @@
       sec.items.forEach((it, idx) => {
         const list = data.checklists[sec.key] || [];
         const e = list[idx] || {};
-        if (e.status === false && e.photos && e.photos.length) {
+        if (e.photos && e.photos.length) {
           evidence.push({ section: sec.title, label: (typeof it === 'string' ? it : it.label), photos: e.photos });
         }
       });
     });
     CAFETERIA_ITEMS.forEach((label, idx) => {
       const e = data.cafeteriaItems[idx] || {};
-      if (e.status === false && e.photos && e.photos.length) {
-        evidence.push({ section: 'Staff Cafeteria', label: label, photos: e.photos });
-      }
+      if (e.photos && e.photos.length) evidence.push({ section: 'Staff Cafeteria', label: label, photos: e.photos });
+    });
+    data.roomsInspection.forEach(row => {
+      if (row.photos && row.photos.length) evidence.push({ section: 'Rooms Inspection', label: 'Room ' + (row.room || '—'), photos: row.photos });
     });
     if (data.roomsInspection.length) {
       y = pdfSectionHeading(doc, W, y, 'Rooms Inspection');
@@ -3707,26 +4048,7 @@
       ], data.generalComments.map(item => ({TIME: item.time || '—', COMMENT: item.comment || ''})));
       y += 8;
     }
-    if (evidence.length) {
-      y = pdfSectionHeading(doc, W, y, 'Inspection Photo Evidence');
-      y += 12;
-      for (const ev of evidence) {
-        if (y + 110 > 780) { doc.addPage(); y = 45; }
-        doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
-        doc.setTextColor(...NOVOTEL.brassDark);
-        doc.text(`${ev.section} — ${ev.label}`, 40, y); y += 11;
-        let px = 40, loaded = 0;
-        for (const p of ev.photos) {
-          const img = await loadImg(p);
-          if (!img) continue;
-          if (px + 90 > W - 40) { y += 96; px = 40; }
-          if (y + 90 > 770) { doc.addPage(); y = 45; }
-          try { doc.addImage(img, 'JPEG', px, y, 88, 88); px += 94; loaded++; } catch (e) {}
-        }
-        y += (loaded ? 98 : 3);
-      }
-      y += 6;
-    }
+    y = await pdfEvidence(doc, W, y, evidence);
     if (data.notes.length) y = await writeNotesPdf(doc, W, y, data.notes);
     return y;
   }
@@ -3775,9 +4097,12 @@
   window.kpiTones = KPI_TONES;
   window.gssStatus = gssStatus;
   window.occupancyCard = occupancyCard;
+  window.nightOccupancyCard = nightOccupancyCard;
+  window.nightAdrCard = nightAdrCard;
   window.withPercent = withPercent;
   window.occupancyCss = occupancyCss;
   window.actionItemsHtml = actionItemsHtml;
+  window.dashActionRows = dashActionRows;
   window.renderNightInspection = renderNightInspection;
   window.normalizeNightInspection = normalizeNightInspection;
   window.missingNightSections = missingNightSections;
