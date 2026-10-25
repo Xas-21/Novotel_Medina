@@ -383,6 +383,11 @@ async def get_night_analysis(
         day += timedelta(days=1)
 
     selected = saved.get(report_date.isoformat())
+    period_rooms = {code: 0.0 for code in SEGMENT_CODES}
+    for row in saved.values():
+        for item in _loads(row["segments_json"], []) or []:
+            if isinstance(item, dict) and item.get("code") in period_rooms:
+                period_rooms[item["code"]] += _num(item.get("rooms"))
     stored = _loads(selected["segments_json"], []) if selected else []
     by_code = {}
     if isinstance(stored, list):
@@ -407,6 +412,7 @@ async def get_night_analysis(
             "other": money(other),
         },
         "segments": [{"code": code, "rooms": by_code.get(code, 0)} for code in SEGMENT_CODES],
+        "segmentsPeriod": [{"code": code, "rooms": money(period_rooms[code])} for code in SEGMENT_CODES],
         "roomsSold": money(rooms_sold),
         "filedNights": filed,
         "avgOccupancy": _avg_occ(rooms_sold, rooms_available),

@@ -478,6 +478,20 @@ def test_analysis_totals_rooms_sold_and_occupancy(api):
     assert month["grandTotal"] == money(2 * (83561.14 + 12833.52 + 406.96))
 
 
+def test_analysis_sums_segment_rooms_across_the_period(api):
+    client, _db_path = api
+    headers = _headers(USERS["night"])
+    first = dict(OCT_8, segments=[{"code": "SLA", "rooms": 120, "adr": 0}, {"code": "SKP", "rooms": 5, "adr": 0}])
+    second = dict(OCT_8, date="2026-10-06", segments=[{"code": "SLA", "rooms": 30, "adr": 0}, {"code": "KGACI", "rooms": 12, "adr": 0}])
+    assert client.put("/api/night", json=first, headers=headers).status_code == 200
+    assert client.put("/api/night", json=second, headers=headers).status_code == 200
+    data = client.get("/api/night/analysis?date=2026-10-09&range=month", headers=headers).json()
+    assert [seg["rooms"] for seg in data["segments"]] == [0] * len(SEGMENT_CODES)
+    totals = {seg["code"]: seg["rooms"] for seg in data["segmentsPeriod"]}
+    assert [seg["code"] for seg in data["segmentsPeriod"]] == SEGMENT_CODES
+    assert totals == {"SLA": 150, "KGACI": 12, "QEACI": 0, "TWBCI": 0, "TWACI": 0, "TWACS": 0, "SKP": 5}
+
+
 def test_month_analysis_series_and_ood_grand_total(api):
     client, db_path = api
     headers = _headers(USERS["night"])

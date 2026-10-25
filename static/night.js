@@ -1647,7 +1647,7 @@
       },
       options: revOptions
     });
-    const segments = (night && night.segments) || [];
+    const segments = (night && (night.segmentsPeriod || night.segments)) || [];
     const segOptions = charts.chartFrame();
     segOptions.indexAxis = 'y';
     segOptions.scales.y.grid = { display: false };
@@ -1879,7 +1879,7 @@
                   </div>`;
                 }).join('')}
               </div>`)}
-            ${dashPane('side', 'segments', `<p class="dash-caption">Rooms by segment on ${escapeHtml((window.state && window.state.periodTo) || '')}</p><div class="dash-canvas dash-canvas-captioned"><canvas id="fullSegments"></canvas></div>`)}
+            ${dashPane('side', 'segments', `<p class="dash-caption">Room nights by segment, ${escapeHtml((window.state && window.state.periodFrom) || '')} to ${escapeHtml((window.state && window.state.periodTo) || '')}</p><div class="dash-canvas dash-canvas-captioned"><canvas id="fullSegments"></canvas></div>`)}
             ${dashPane('side', 'parking', parking ? `
               <div class="dash-park">
                 ${parkRows.map(([label, key, color, note]) => `<button type="button" class="dash-park-card" style="background:${color}" title="${escapeHtml(note)} · Open Manage Parkings" data-dash-go="parking"><span>${label}</span><strong>${n(parking[key] || 0)}</strong></button>`).join('')}
