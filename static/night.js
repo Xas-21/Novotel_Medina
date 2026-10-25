@@ -1295,6 +1295,9 @@
     doc.text('Departures: ' + (data.departures || '—'), 360, y);
     doc.text('ALL Loyalty Members: ' + (data.allMembers || '—'), 470, y);
     y += 16;
+    const analysis = await window.apiFetch('/api/night/analysis?date=' + encodeURIComponent(date) + '&range=month');
+    if (analysis && window.NovotelPdf) y = pdf.pdfKpiBoard(doc, W, y, nightTiers(analysis), { split: true });
+    y = await appendNightAnalysisCharts(doc, W, y, analysis);
     const c = data.calculated || {};
     const m = data.mtd || {};
     const asEntered = value => value == null || value === '' ? '' : String(value);
@@ -1324,9 +1327,6 @@
       return item;
     }));
     y += 12;
-    const analysis = await window.apiFetch('/api/night/analysis?date=' + encodeURIComponent(date) + '&range=month');
-    if (analysis && window.NovotelPdf) y = pdf.pdfKpiBoard(doc, W, y, nightTiers(analysis));
-    y = await appendNightAnalysisCharts(doc, W, y, analysis);
     const gap = data.segmentGap || {};
     const segmentRows = (data.segments || []).map(seg => ({CODE: seg.code, ROOMS: String(seg.rooms ?? '')}));
     segmentRows.push({CODE: 'Unassigned', ROOMS: String(gap.unassigned ?? '')});
