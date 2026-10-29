@@ -1636,14 +1636,22 @@
     drawPie('pieRevenue', ['Rooms', 'F&B', 'M&E', 'OOD', 'Other'], [revenue.rooms || 0, revenue.fb || 0, revenue.me || 0, revenue.ood || 0, revenue.other || 0], ['#1e22aa', '#14b8a6', '#7c6bf2', '#A8814F', '#8aa0b2']);
     if (window.guestPriorityChart) window.guestPriorityChart(document.getElementById('guestPriority'), guest || {}, false);
     if (window.guestVipChart) window.guestVipChart(document.getElementById('guestVip'), guest || {}, false);
+    const revNames = ['Rooms', 'F&B', 'M&E', 'OOD', 'Other'];
+    const revAmounts = [revenue.rooms || 0, revenue.fb || 0, revenue.me || 0, revenue.ood || 0, revenue.other || 0];
+    const revTotal = revAmounts.reduce((sum, value) => sum + Number(value), 0);
+    const revShare = value => {
+      if (!revTotal || !value) return '0%';
+      const pct = Number(value) / revTotal * 100;
+      return pct < 1 ? '<1%' : Math.round(pct) + '%';
+    };
     const revOptions = charts.chartFrame();
     revOptions.indexAxis = 'y';
     revOptions.scales.y.grid = { display: false };
     charts.mountChart(document.getElementById('fullRevenue'), {
       type: 'bar',
       data: {
-        labels: ['Rooms', 'F&B', 'M&E', 'OOD', 'Other'],
-        datasets: [{ label: 'Revenue (SAR)', data: [revenue.rooms || 0, revenue.fb || 0, revenue.me || 0, revenue.ood || 0, revenue.other || 0], backgroundColor: ['#1e22aa', '#14b8a6', '#7c6bf2', '#A8814F', '#8aa0b2'], borderRadius: 6, maxBarThickness: 16 }]
+        labels: revNames.map((name, i) => name + '  ' + revShare(revAmounts[i])),
+        datasets: [{ label: 'Revenue (SAR)', data: revAmounts, backgroundColor: ['#1e22aa', '#14b8a6', '#7c6bf2', '#A8814F', '#8aa0b2'], borderRadius: 6, maxBarThickness: 16 }]
       },
       options: revOptions
     });
