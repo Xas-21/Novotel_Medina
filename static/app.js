@@ -298,20 +298,21 @@
     lib.jsPDF = SafePDF;
   })();
 
-  async function pdfEvidence(doc, W, y, evidence) {
+  async function pdfEvidence(doc, W, y, evidence, margin) {
     if (!evidence.length) return y;
+    const x = margin == null ? 40 : margin;
     y = pdfSectionHeading(doc, W, y, 'Inspection Photo Evidence');
     y += 12;
     for (const ev of evidence) {
       if (y + 110 > 780) { doc.addPage(); y = 45; }
       doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
       doc.setTextColor(...NOVOTEL.brassDark);
-      doc.text(`${ev.section} — ${ev.label}`, 40, y); y += 11;
-      let px = 40, loaded = 0;
+      doc.text(`${ev.section} — ${ev.label}`, x, y); y += 11;
+      let px = x, loaded = 0;
       for (const p of ev.photos) {
         const img = await loadImg(p);
         if (!img) continue;
-        if (px + 90 > W - 40) { y += 96; px = 40; }
+        if (px + 90 > W - x) { y += 96; px = x; }
         if (y + 90 > 770) { doc.addPage(); y = 45; }
         try { doc.addImage(img, 'JPEG', px, y, 88, 88); px += 94; loaded++; } catch (e) {}
       }
@@ -3424,6 +3425,10 @@
           await window.applyNightChecklistPhoto(file, target);
           return;
         }
+        if (state.section === 'guest' && window.applyGuestRoomPhoto) {
+          await window.applyGuestRoomPhoto(file, target);
+          return;
+        }
         if (!state.report) return;
         const [secKey, idxStr] = target;
         let item;
@@ -3458,7 +3463,7 @@
           const key = acc.dataset.acc;
           if (state.openAcc.has(key)) state.openAcc.delete(key);
           else state.openAcc.add(key);
-          if (acc.closest('#nightForm')) {
+          if (acc.closest('#nightForm') || acc.closest('#guestForm')) {
             acc.open = state.openAcc.has(key);
             return;
           }
@@ -4109,13 +4114,14 @@
   window.showSubmitGaps = showSubmitGaps;
   window.appendNightInspectionPdf = appendNightInspectionPdf;
   window.uploadDutyPhoto = uploadPhotoFile;
+  window.renderDynAcc = renderDynAcc;
   window.renderOverlays = renderOverlays;
   window.apiFetch = apiFetch;
   window.state = state;
   window.renderApp = render;
   window.groupByMonth = groupByMonth;
   window.exportDutyPdf = exportPdf;
-  window.NovotelPdf = { pdfHeader, pdfMasthead, pdfTable, addPdfFooter, getLogoDataUrl, pdfKpiBoard };
+    window.NovotelPdf = { pdfHeader, pdfMasthead, pdfTable, addPdfFooter, getLogoDataUrl, pdfKpiBoard, pdfEvidence };
   window.occupancySeries = occupancySeries;
   window.periodBar = periodBar;
   window.periodQuery = periodQuery;

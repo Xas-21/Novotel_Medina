@@ -229,6 +229,38 @@ def test_guest_call_status_and_note_are_saved(api):
     assert report["departure"][0]["callStatus"] == "Pending"
 
 
+def test_guest_rooms_inspection_saves_comments_and_photos(api):
+    client, _db_path = api
+    staff = _headers(USERS["staff"])
+    blank = client.get("/api/guest", params={"date": "2099-06-04"}, headers=staff).json()
+    assert blank["roomsInspection"] == []
+    saved = client.put(
+        "/api/guest",
+        json={
+            "date": "2099-06-04",
+            "roomsInspection": [
+                {
+                    "room": "412",
+                    "status": False,
+                    "comment": "Welcome fruit missing",
+                    "photos": ["/api/uploads/img_guestroom.jpg"],
+                }
+            ],
+        },
+        headers=staff,
+    )
+    assert saved.status_code == 200
+    report = client.get("/api/guest", params={"date": "2099-06-04"}, headers=staff).json()
+    assert report["roomsInspection"] == [
+        {
+            "room": "412",
+            "status": False,
+            "comment": "Welcome fruit missing",
+            "photos": ["/api/uploads/img_guestroom.jpg"],
+        }
+    ]
+
+
 def test_guest_relation_saves_without_touching_other_reports(api):
     client, db_path = api
     staff = _headers(USERS["staff"])

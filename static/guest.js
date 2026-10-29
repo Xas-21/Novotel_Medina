@@ -83,7 +83,13 @@
       preArrival: data.preArrival || [],
       inHouse: data.inHouse || [],
       departure: data.departure || [],
-      generalComments: data.generalComments || []
+      generalComments: data.generalComments || [],
+      roomsInspection: Array.isArray(data.roomsInspection) ? data.roomsInspection.map(row => ({
+        room: row.room || '',
+        status: row.status === true ? true : (row.status === false ? false : null),
+        comment: row.comment || '',
+        photos: Array.isArray(row.photos) ? row.photos.slice(0, 2) : []
+      })) : []
     };
   }
 
@@ -214,6 +220,11 @@
         ${sectionAcc('guest-inHouse', 'In-house welcome call', `${house || '<p class="dmr-sub">No guests yet.</p>'}<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="inHouse" ${dis}>+ Add guest</button>`)}
         ${sectionAcc('guest-departure', 'Departure courtesy call', `${leave || '<p class="dmr-sub">No guests yet.</p>'}<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="departure" ${dis}>+ Add guest</button>`)}
         ${sectionAcc('guest-comments', 'General Comments', `${comments || '<p class="dmr-sub">No general comments yet.</p>'}${dis ? '' : '<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-guest-add="generalComments">+ Add comment</button>'}`)}
+        <div class="${dis ? 'dmr-locked' : ''}">${window.renderDynAcc ? window.renderDynAcc('roomsInspection', 'Rooms Inspection', draft.roomsInspection, [
+          {key:'room', ph:'Room #', type:'text', w:1},
+          {key:'status', type:'toggle'},
+          {key:'comment', ph:'Inspection comment / findings', type:'text', w:2, notes:true}
+        ]) : ''}</div>
         ${dis ? '' : `
         <div class="dmr-card" style="padding:18px;margin-top:10px;text-align:center;">
           <button type="button" class="dmr-btn dmr-btn-primary" id="guestSubmit" style="width:100%;justify-content:center;padding:13px;font-size:14.5px;">✓ Submit &amp; Close Daily Report</button>
@@ -262,6 +273,13 @@
         return item;
       });
     });
+    form.querySelectorAll('[data-dyn-list="roomsInspection"]').forEach(row => {
+      const item = draft.roomsInspection[Number(row.dataset.dynIdx)];
+      if (!item) return;
+      row.querySelectorAll('[data-dyn-field]').forEach(el => { item[el.dataset.dynField] = el.value; });
+      const notes = Array.from(row.querySelectorAll('[data-dyn-note]')).map(el => el.value);
+      if (notes.length) item.comment = notes.join('\n');
+    });
   }
   function payload(){
     read();
@@ -271,7 +289,8 @@
       arrivals: draft.arrivals, departures: draft.departures, occupancy: draft.occupancy,
       scores: draft.scores, membership: draft.membership,
       preArrival: draft.preArrival, inHouse: draft.inHouse, departure: draft.departure,
-      generalComments: draft.generalComments
+      generalComments: draft.generalComments,
+      roomsInspection: draft.roomsInspection
     };
   }
   async function save(){
@@ -290,7 +309,27 @@
     if (list === 'generalComments') return {comment:'', time:''};
     return {reservation:'', name:'', membership:'', arrival:'', departure:'', arrivalTime:'', preferences:'', action:'', note:'', callStatus:'', contacted:'', room:'', satisfaction:'', request:'', service:'', drink:'', fb:'', score:'', feedback:'', review:'', employeeRating:'', priority:'Normal'};
   }
-  const GUEST_ACC = {scores:'guest-scores', membership:'guest-membership', preArrival:'guest-preArrival', inHouse:'guest-inHouse', departure:'guest-departure', generalComments:'guest-comments'};
+  const GUEST_ACC = {scores:'guest-scores', membership:'guest-membership', preArrival:'guest-preArrival', inHouse:'guest-inHouse', departure:'guest-departure', generalComments:'guest-comments', roomsInspection:'roomsInspection'};
+  function roomRow(target){
+    const row = target && target.closest && target.closest('[data-dyn-list="roomsInspection"]');
+    if (!row || !draft || !draft.roomsInspection) return null;
+    return { row, item: draft.roomsInspection[Number(row.dataset.dynIdx)] };
+  }
+  async function applyGuestRoomPhoto(file, target){
+    if (locked() || !canEdit() || !draft || !target || !window.uploadDutyPhoto) return;
+    read();
+    if (target[0] !== 'dyn' || target[1] !== 'roomsInspection') return;
+    const item = (draft.roomsInspection || [])[parseInt(target[2], 10)];
+    if (!item) return;
+    if (!item.photos) item.photos = [];
+    if (item.photos.length >= 2) return;
+    const url = await window.uploadDutyPhoto(file);
+    if (!url) return;
+    item.photos.push(url);
+    if (window.state && window.state.openAcc) window.state.openAcc.add('roomsInspection');
+    paint();
+    queue();
+  }
   async function onClick(e){
     const summary = e.target.closest && e.target.closest('#guestForm summary');
     if (summary && window.state && window.state.openAcc) {
@@ -300,6 +339,91 @@
         if (acc.open) window.state.openAcc.add(acc.dataset.acc);
         else window.state.openAcc.delete(acc.dataset.acc);
       }, 0);
+    }
+    if (canEdit() && !locked()) {
+      const toggle = e.target.closest && e.target.closest('[data-dyn-list="roomsInspection"] [data-dyn-toggle]');
+      const found = roomRow(e.target);
+      if (toggle && found && found.item) {
+        e.preventDefault();
+        read();
+        const item = draft.roomsInspection[Number(found.row.dataset.dynIdx)];
+        const want = toggle.classList.contains('ok');
+        item.status = item.status === want ? null : want;
+        if (window.state && window.state.openAcc) window.state.openAcc.add('roomsInspection');
+        paint();
+        queue();
+        return;
+      }
+      const noteAdd = e.target.closest && e.target.closest('[data-dyn-list="roomsInspection"] [data-dyn-note-add]');
+      if (noteAdd && found && found.item) {
+        e.preventDefault();
+        read();
+        const item = draft.roomsInspection[Number(found.row.dataset.dynIdx)];
+        item.comment = (item.comment || '') + '\n';
+        if (window.state && window.state.openAcc) window.state.openAcc.add('roomsInspection');
+        paint();
+        queue();
+        return;
+      }
+      const noteDel = e.target.closest && e.target.closest('[data-dyn-list="roomsInspection"] [data-dyn-note-del]');
+      if (noteDel && found && found.item) {
+        e.preventDefault();
+        read();
+        const item = draft.roomsInspection[Number(found.row.dataset.dynIdx)];
+        const lines = String(item.comment || '').split('\n');
+        lines.splice(parseInt(noteDel.dataset.dynNoteDel, 10), 1);
+        item.comment = lines.join('\n');
+        if (window.state && window.state.openAcc) window.state.openAcc.add('roomsInspection');
+        paint();
+        queue();
+        return;
+      }
+      const photoAdd = e.target.closest && e.target.closest('[data-dyn-list="roomsInspection"] [data-dyn-photo-add]');
+      if (photoAdd && found && window.state) {
+        e.preventDefault();
+        window.state.photoTarget = ['dyn', 'roomsInspection', found.row.dataset.dynIdx];
+        const input = document.getElementById('checklistPhotoInput');
+        if (input) input.click();
+        return;
+      }
+      const photoDel = e.target.closest && e.target.closest('[data-dyn-list="roomsInspection"] [data-dyn-photo-del]');
+      if (photoDel && found && found.item) {
+        e.preventDefault();
+        read();
+        const item = draft.roomsInspection[Number(found.row.dataset.dynIdx)];
+        if (item.photos) item.photos.splice(parseInt(photoDel.dataset.dynPhotoDel, 10), 1);
+        if (window.state && window.state.openAcc) window.state.openAcc.add('roomsInspection');
+        paint();
+        queue();
+        return;
+      }
+      const photo = e.target.closest && e.target.closest('[data-dyn-list="roomsInspection"] [data-chk-photo]');
+      if (photo && window.state) {
+        window.state.modalImg = photo.src;
+        if (window.renderOverlays) window.renderOverlays();
+        return;
+      }
+      const addRoom = e.target.closest && e.target.closest('[data-add-row="roomsInspection"]');
+      if (addRoom) {
+        e.preventDefault();
+        read();
+        if (!draft.roomsInspection) draft.roomsInspection = [];
+        draft.roomsInspection.push({ room: '', status: null, comment: '', photos: [] });
+        if (window.state && window.state.openAcc) window.state.openAcc.add('roomsInspection');
+        paint();
+        queue();
+        return;
+      }
+      const delRoom = e.target.closest && e.target.closest('[data-dyn-list="roomsInspection"] [data-dyn-del]');
+      if (delRoom && found) {
+        e.preventDefault();
+        read();
+        draft.roomsInspection.splice(Number(found.row.dataset.dynIdx), 1);
+        if (window.state && window.state.openAcc) window.state.openAcc.add('roomsInspection');
+        paint();
+        queue();
+        return;
+      }
     }
     const add = e.target.closest && e.target.closest('[data-guest-add]');
     const del = e.target.closest && e.target.closest('[data-guest-del]');
@@ -935,6 +1059,24 @@
     ], (data.generalComments || []).map(row => ({
       cells: [[part(dash(prettyTime(row.time)), GR.slate, true)], [part(dash(row.comment), GR.ink)]]
     })));
+    const rooms = data.roomsInspection || [];
+    out.table('Rooms Inspection', [
+      {label: 'ROOM', f: 0.14}, {label: 'STATUS', f: 0.16}, {label: 'COMMENT', f: 0.70}
+    ], rooms.map(row => ({
+      cells: [
+        strong(row.room),
+        [part(row.status === true ? 'OK' : (row.status === false ? 'FAIL' : '—'), row.status === true ? GR.green : (row.status === false ? GR.red : GR.slate), true)],
+        [part(dash(row.comment), GR.ink)]
+      ]
+    })));
+    const evidence = rooms.filter(row => row.photos && row.photos.length).map(row => ({
+      section: 'Rooms Inspection',
+      label: 'Room ' + (row.room || '—'),
+      photos: row.photos
+    }));
+    if (evidence.length && pdf.pdfEvidence) {
+      out.g.y = await pdf.pdfEvidence(doc, W, out.g.y, evidence, out.M);
+    }
     out.finish(dateText, data.submittedBy);
     doc.save('novotel-guest-relation-' + date + '.pdf');
   }
@@ -988,6 +1130,7 @@
   }
 
   window.renderGuestSection = renderGuestSection;
+  window.applyGuestRoomPhoto = applyGuestRoomPhoto;
   window.guestPriorityChart = priorityChart;
   window.guestVipChart = vipChart;
 })();

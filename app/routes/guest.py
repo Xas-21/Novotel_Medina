@@ -41,6 +41,7 @@ class GuestSave(BaseModel):
     inHouse: Optional[List[Dict[str, Any]]] = None
     departure: Optional[List[Dict[str, Any]]] = None
     generalComments: Optional[List[Dict[str, Any]]] = None
+    roomsInspection: Optional[List[Dict[str, Any]]] = None
 
 
 def _parse_date(value: str):
@@ -140,6 +141,33 @@ def _rows(items, fields):
     return rows
 
 
+def _rooms_inspection(items):
+    rows = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        status = item.get("status")
+        if status is True or status == "true":
+            status = True
+        elif status is False or status == "false":
+            status = False
+        else:
+            status = None
+        photos = []
+        for url in item.get("photos") or []:
+            if isinstance(url, str) and url.strip():
+                photos.append(url.strip())
+            if len(photos) == 2:
+                break
+        rows.append({
+            "room": _text(item.get("room")),
+            "status": status,
+            "comment": _text(item.get("comment")),
+            "photos": photos,
+        })
+    return rows
+
+
 def _body_from_save(data: GuestSave) -> dict:
     return {
         "shiftStart": _text(data.shiftStart) or _text(data.time),
@@ -155,6 +183,7 @@ def _body_from_save(data: GuestSave) -> dict:
         "inHouse": _rows(data.inHouse, ["room", "name", "membership", "arrival", "departure", "satisfaction", "request", "service", "drink", "fb", "action", "note", "callStatus", "contacted", "feedback", "priority"]),
         "departure": _rows(data.departure, ["room", "name", "membership", "arrival", "departure", "score", "feedback", "review", "action", "note", "callStatus", "contacted", "employeeRating", "priority"]),
         "generalComments": _rows(data.generalComments, ["comment", "time"]),
+        "roomsInspection": _rooms_inspection(data.roomsInspection),
     }
 
 
