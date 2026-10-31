@@ -229,6 +229,34 @@ def test_guest_call_status_and_note_are_saved(api):
     assert report["departure"][0]["callStatus"] == "Pending"
 
 
+def test_guest_action_items_stay_on_the_report_and_the_follow_up_list(api):
+    client, _db_path = api
+    staff = _headers(USERS["staff"])
+    saved = client.put("/api/guest", headers=staff, json={
+        "date": "2099-06-11",
+        "arrivals": "4",
+        "notes": [{
+            "id": "gn_1", "department": "Housekeeping", "priority": "urgent",
+            "text": "VIP amenity missing", "status": "open", "manager": "Sam Staff",
+            "time": "18:00", "assignees": ["usr_staff"], "createdBy": "usr_staff", "timeline": [],
+        }],
+    })
+    assert saved.status_code == 200
+    report = client.get("/api/guest", params={"date": "2099-06-11"}, headers=staff).json()
+    assert report["arrivals"] == "4"
+    assert report["notes"][0]["text"] == "VIP amenity missing"
+    assert report["notes"][0]["assignees"] == ["usr_staff"]
+    items = client.get("/api/alerts/followups", headers=staff).json()["items"]
+    assert any(item["source"] == "guest" and item["text"] == "VIP amenity missing" for item in items)
+    changed = client.post("/api/alerts/status", headers=staff, json={
+        "source": "guest", "id": "gn_1", "date": "2099-06-11", "status": "progress",
+    })
+    assert changed.status_code == 200
+    again = client.get("/api/guest", params={"date": "2099-06-11"}, headers=staff).json()
+    assert again["notes"][0]["status"] == "progress"
+    assert again["preArrival"] == []
+
+
 def test_guest_rooms_inspection_saves_comments_and_photos(api):
     client, _db_path = api
     staff = _headers(USERS["staff"])

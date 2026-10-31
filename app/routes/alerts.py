@@ -332,6 +332,34 @@ async def followups(user: TokenData = Depends(require_auth), db: aiosqlite.Conne
                 "comments": await _comment_list(db, f"night:{row['date']}:{note.get('id')}"),
                 "reportLabel": f"Night report · {row['date']}",
             })
+    cursor = await db.execute("SELECT date, body_json FROM guest_reports")
+    for row in await cursor.fetchall():
+        body = _loads(row["body_json"], {})
+        if not isinstance(body, dict):
+            continue
+        for note in body.get("notes") or []:
+            if not isinstance(note, dict) or note.get("status") not in ("open", "progress"):
+                continue
+            assignees = assignee_ids(note.get("assignees"))
+            if not _follows(user, note.get("createdBy") or "", assignees, note.get("manager") or ""):
+                continue
+            lines = []
+            for event in note.get("timeline") or []:
+                if isinstance(event, dict):
+                    lines.append(_line(event.get("at") or "", event.get("status") or "", event.get("actor") or ""))
+            if not lines:
+                lines = [_line(note.get("time") or "", note.get("status") or "open", note.get("manager") or "")]
+            items.append({
+                "id": note.get("id") or "", "source": "guest", "date": row["date"],
+                "priority": note.get("priority") or "normal", "cls": _priority_cls(note.get("priority") or "normal"),
+                "priorityLabel": PRIORITY_LABEL.get(note.get("priority") or "normal", "Normal"),
+                "department": note.get("department") or "", "status": note.get("status") or "open",
+                "title": note.get("text") or "", "text": note.get("text") or "", "photo": note.get("photo_url") or "",
+                "assignedBy": note.get("manager") or "", "assignedTo": [names.get(item, item) for item in assignees],
+                "lines": [line for line in lines if line],
+                "comments": await _comment_list(db, f"guest:{row['date']}:{note.get('id')}"),
+                "reportLabel": f"Guest report · {row['date']}",
+            })
     return {"show": bool(items), "items": items}
 
 
@@ -367,6 +395,25 @@ def _can_follow_night(user: TokenData, note: dict) -> bool:
     return can_write(user.role, "night") or _follows(user, note.get("createdBy") or "", assignee_ids(note.get("assignees")), note.get("manager") or "")
 
 
+def _can_follow_guest(user: TokenData, note: dict) -> bool:
+    return can_write(user.role, "guest") or _follows(user, note.get("createdBy") or "", assignee_ids(note.get("assignees")), note.get("manager") or "")
+
+
+async def _guest_note(db, date: str, note_id: str):
+    cursor = await db.execute("SELECT body_json FROM guest_reports WHERE date = ?", (date,))
+    row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Report not found")
+    body = _loads(row["body_json"], {})
+    notes = body.get("notes") if isinstance(body, dict) else None
+    if not isinstance(notes, list):
+        raise HTTPException(status_code=404, detail="Action item not found")
+    for note in notes:
+        if isinstance(note, dict) and note.get("id") == note_id:
+            return body, note
+    raise HTTPException(status_code=404, detail="Action item not found")
+
+
 @router.post("/comment")
 async def add_comment(data: CommentBody, user: TokenData = Depends(require_auth), db: aiosqlite.Connection = Depends(get_db)):
     text = (data.body or "").strip()
@@ -385,6 +432,11 @@ async def add_comment(data: CommentBody, user: TokenData = Depends(require_auth)
         if not _can_follow_night(user, note):
             raise HTTPException(status_code=403, detail="You cannot comment on this action item")
         followup_id = f"night:{data.date}:{data.id}"
+    elif data.source == "guest":
+        _, note = await _guest_note(db, data.date, data.id)
+        if not _can_follow_guest(user, note):
+            raise HTTPException(status_code=403, detail="You cannot comment on this action item")
+        followup_id = f"guest:{data.date}:{data.id}"
     else:
         raise HTTPException(status_code=400, detail="Unknown action item")
     created = datetime.now(RIYADH).isoformat(timespec="seconds")
@@ -401,19 +453,27 @@ async def add_comment(data: CommentBody, user: TokenData = Depends(require_auth)
 async def set_follow_status(data: StatusBody, user: TokenData = Depends(require_auth), db: aiosqlite.Connection = Depends(get_db)):
     if data.status not in ("open", "progress", "closed"):
         raise HTTPException(status_code=400, detail="Unknown status")
-    if data.source != "night":
-        raise HTTPException(status_code=400, detail="Use the duty note update for duty items")
-    inspection, note = await _night_note(db, data.date, data.id)
-    if not _can_follow_night(user, note):
-        raise HTTPException(status_code=403, detail="You cannot change this action item")
-    from datetime import datetime
-    from app.routes.parking import RIYADH
     now = datetime.now(RIYADH).isoformat(timespec="seconds")
-    note["status"] = data.status
-    timeline = note.get("timeline") if isinstance(note.get("timeline"), list) else []
-    timeline.append({"status": data.status, "at": now, "actor": user.full_name})
-    note["timeline"] = timeline
-    await db.execute("UPDATE night_reports SET inspection_json = ? WHERE date = ?", (json.dumps(inspection), data.date))
+    if data.source == "night":
+        inspection, note = await _night_note(db, data.date, data.id)
+        if not _can_follow_night(user, note):
+            raise HTTPException(status_code=403, detail="You cannot change this action item")
+        note["status"] = data.status
+        timeline = note.get("timeline") if isinstance(note.get("timeline"), list) else []
+        timeline.append({"status": data.status, "at": now, "actor": user.full_name})
+        note["timeline"] = timeline
+        await db.execute("UPDATE night_reports SET inspection_json = ? WHERE date = ?", (json.dumps(inspection), data.date))
+    elif data.source == "guest":
+        body, note = await _guest_note(db, data.date, data.id)
+        if not _can_follow_guest(user, note):
+            raise HTTPException(status_code=403, detail="You cannot change this action item")
+        note["status"] = data.status
+        timeline = note.get("timeline") if isinstance(note.get("timeline"), list) else []
+        timeline.append({"status": data.status, "at": now, "actor": user.full_name})
+        note["timeline"] = timeline
+        await db.execute("UPDATE guest_reports SET body_json = ? WHERE date = ?", (json.dumps(body), data.date))
+    else:
+        raise HTTPException(status_code=400, detail="Use the duty note update for duty items")
     await db.commit()
-    await _tell_follow("night", data.id, data.date)
+    await _tell_follow(data.source, data.id, data.date)
     return {"line": _line(now, data.status, user.full_name)}

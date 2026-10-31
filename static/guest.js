@@ -89,6 +89,19 @@
         status: row.status === true ? true : (row.status === false ? false : null),
         comment: row.comment || '',
         photos: Array.isArray(row.photos) ? row.photos.slice(0, 2) : []
+      })) : [],
+      notes: Array.isArray(data.notes) ? data.notes.map(note => ({
+        id: note.id || '',
+        department: note.department || 'Other',
+        priority: note.priority || 'normal',
+        text: note.text || '',
+        photo_url: note.photo_url || '',
+        manager: note.manager || '',
+        time: note.time || '',
+        status: note.status || 'open',
+        assignees: Array.isArray(note.assignees) ? note.assignees.slice(0, 3) : [],
+        createdBy: note.createdBy || '',
+        timeline: Array.isArray(note.timeline) ? note.timeline : []
       })) : []
     };
   }
@@ -116,6 +129,7 @@
     applyData(data);
     paint();
     bind();
+    if (window.fillAlertAssigns) window.fillAlertAssigns();
   }
 
   function field(label, html, wide){ return `<div class="dmr-field${wide ? ' guest-wide' : ''}"><label>${label}</label>${html}</div>`; }
@@ -127,6 +141,130 @@
   function sectionAcc(key, title, body){
     const open = window.state && window.state.openAcc && window.state.openAcc.has(key) ? 'open' : '';
     return `<details class="dmr-acc" data-acc="${key}" ${open}><summary><span>${title}</span><span class="arrow">▾</span></summary><div class="dmr-acc-body" style="padding-top:14px;">${body}</div></details>`;
+  }
+
+  const NOTE_DEPTS = ['Front Office', 'Housekeeping', 'Food & Beverage', 'Maintenance', 'Security', 'Other'];
+  const NOTE_PRIORITY = [['normal', 'Normal'], ['follow', 'Needs follow-up'], ['urgent', 'Urgent']];
+  const NOTE_STATUS = [['open', 'Open'], ['progress', 'In progress'], ['closed', 'Closed']];
+
+  function actorName(){
+    const user = window.state && window.state.user;
+    if (!user) return '';
+    const name = ((user.first_name || '') + ' ' + (user.last_name || '')).trim() || user.username || '';
+    return user.title ? (name + ' — ' + user.title) : name;
+  }
+  function noteLabel(list, value){
+    const found = list.find(item => item[0] === value);
+    return found ? found[1] : (value || '');
+  }
+  function actionNoteHtml(note){
+    const dis = locked() || !canEdit();
+    const focused = window.state && window.state.followFocus && window.state.followFocus.source === 'guest' && window.state.followFocus.id === note.id;
+    const statusLocked = dis && !focused;
+    const assigned = (note.assignees || []).map(id => window.alertName ? window.alertName(id) : '').filter(Boolean);
+    const events = (note.timeline && note.timeline.length) ? note.timeline : [{ status: note.status || 'open', at: note.time || '', actor: note.manager || '' }];
+    return `
+      <div class="dmr-entry">
+        <div class="dmr-card dmr-entry-card">
+          <div class="dmr-entry-top">
+            <div><span class="dmr-tag dmr-tag-dept">${escapeHtml(note.department)}</span><span class="dmr-tag">${escapeHtml(noteLabel(NOTE_PRIORITY, note.priority))}</span></div>
+            <div class="dmr-entry-time">${escapeHtml(note.time)}</div>
+          </div>
+          <div class="dmr-entry-text">${escapeHtml(note.text)}</div>
+          <div class="dmr-note-timeline">${events.map(ev => `<div>${escapeHtml(ev.at || '')} — ${escapeHtml(noteLabel(NOTE_STATUS, ev.status))} — ${escapeHtml(ev.actor || '')}</div>`).join('')}</div>
+          ${assigned.length ? `<div class="alert-people">${assigned.map(name => `<span class="alert-person blue"><small>Assigned to</small>${escapeHtml(name)}</span>`).join('')}</div>` : ''}
+          ${note.photo_url ? `<img src="${escapeHtml(note.photo_url)}" class="dmr-thumb" data-photo="${escapeHtml(note.photo_url)}">` : ''}
+          <div class="dmr-entry-bottom">
+            <span class="dmr-manager">Logged by: <b>${escapeHtml(note.manager)}</b></span>
+            <span style="display:flex;align-items:center;gap:8px;">
+              <select class="dmr-status-select" data-guest-note-status="${escapeHtml(note.id)}" ${statusLocked ? 'disabled' : ''}>
+                ${NOTE_STATUS.map(item => `<option value="${item[0]}" ${item[0] === note.status ? 'selected' : ''}>${item[1]}</option>`).join('')}
+              </select>
+              ${dis ? '' : `<button class="dmr-del" type="button" data-guest-note-del="${escapeHtml(note.id)}">✕</button>`}
+            </span>
+          </div>
+        </div>
+      </div>`;
+  }
+  function actionSection(dis){
+    const notes = draft.notes || [];
+    const form = dis ? '' : `
+      <div style="padding-top:14px;">
+        <div class="dmr-row">
+          <div class="dmr-field"><label>Department</label><select id="guestNoteDept">${NOTE_DEPTS.map(item => `<option>${escapeHtml(item)}</option>`).join('')}</select></div>
+          <div class="dmr-field"><label>Priority</label><select id="guestNotePriority">${NOTE_PRIORITY.map(item => `<option value="${item[0]}">${escapeHtml(item[1])}</option>`).join('')}</select></div>
+        </div>
+        <div class="dmr-row">
+          <div class="dmr-field assign-pick">
+            <label>Assign follow up staff</label>
+            <button type="button" class="assign-toggle" id="guest-assign-btn" aria-expanded="false" aria-controls="guest-assign-menu">
+              <span>Choose a person</span><span class="assign-caret" aria-hidden="true">▾</span>
+            </button>
+            <div class="assign-menu" id="guest-assign-menu" data-box="guest-assign-box" hidden></div>
+          </div>
+          <div class="dmr-field">
+            <label>Assigned</label>
+            <div class="assign-box" id="guest-assign-box" data-ids=""><span class="assign-empty">None yet</span></div>
+          </div>
+        </div>
+        <div class="dmr-field"><label>Detailed Note</label><textarea id="guestNoteText" placeholder="Record maintenance issue, VIP requests, cleanliness observation..."></textarea></div>
+        <div class="dmr-row" style="align-items:flex-end;">
+          <div class="dmr-field" style="margin-bottom:0;">
+            <label>Attach Photo (Camera / Gallery)</label>
+            <div class="dmr-photo-input">
+              <input type="file" id="guestNotePhoto" accept="image/*">
+              <img id="guestNotePreview" class="dmr-photo-preview" style="display:none;">
+            </div>
+          </div>
+          <button type="button" class="dmr-btn dmr-btn-primary" id="guestAddNote" style="height:40px;">+ Add Note</button>
+        </div>
+      </div>`;
+    const list = notes.length ? `<div class="dmr-timeline" style="margin-top:14px;">${notes.map(actionNoteHtml).join('')}</div>` : '<div class="dmr-empty" style="padding:24px;">No additional notes logged for this shift.</div>';
+    return sectionAcc('guest-notes', 'Action Items', form + list);
+  }
+  async function uploadActionPhoto(input){
+    const file = input.files && input.files[0];
+    if (!file || !window.uploadDutyPhoto) return;
+    const url = await window.uploadDutyPhoto(file);
+    const preview = document.getElementById('guestNotePreview');
+    if (url && preview) {
+      preview.src = url;
+      preview.style.display = 'block';
+      input.dataset.url = url;
+    }
+  }
+  function addActionNote(){
+    if (!draft || locked() || !canEdit()) return;
+    const textEl = document.getElementById('guestNoteText');
+    const text = textEl ? textEl.value.trim() : '';
+    const note = document.getElementById('guestNote');
+    if (!text) {
+      if (note) note.textContent = 'Please type your note observation first';
+      return;
+    }
+    const box = document.getElementById('guest-assign-box');
+    const assignees = box && box.dataset.ids ? box.dataset.ids.split(',').filter(Boolean).slice(0, 3) : [];
+    const photo = document.getElementById('guestNotePhoto');
+    const user = window.state && window.state.user;
+    if (!draft.notes) draft.notes = [];
+    draft.notes.push({
+      id: 'gn_' + Date.now(),
+      department: (document.getElementById('guestNoteDept') || {}).value || 'Other',
+      priority: (document.getElementById('guestNotePriority') || {}).value || 'normal',
+      text: text,
+      photo_url: photo && photo.dataset.url ? photo.dataset.url : '',
+      manager: actorName(),
+      time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Riyadh' }),
+      status: 'open',
+      assignees: assignees,
+      createdBy: user && user.id ? user.id : '',
+      timeline: [{ status: 'open', at: new Date().toISOString(), actor: actorName() }]
+    });
+    if (window.state && window.state.openAcc) window.state.openAcc.add('guest-notes');
+    paint();
+    if (window.fillAlertAssigns) window.fillAlertAssigns();
+    queue();
+    if (note) note.textContent = '';
   }
 
   function paint(){
@@ -225,6 +363,7 @@
           {key:'status', type:'toggle'},
           {key:'comment', ph:'Inspection comment / findings', type:'text', w:2, notes:true}
         ]) : ''}</div>
+        ${actionSection(dis)}
         ${dis ? '' : `
         <div class="dmr-card" style="padding:18px;margin-top:10px;text-align:center;">
           <button type="button" class="dmr-btn dmr-btn-primary" id="guestSubmit" style="width:100%;justify-content:center;padding:13px;font-size:14.5px;">✓ Submit &amp; Close Daily Report</button>
@@ -244,6 +383,23 @@
   }
   function onInput(e){
     const target = e.target;
+    if (target && target.id === 'guestNotePhoto') {
+      uploadActionPhoto(target);
+      return;
+    }
+    if (target && target.dataset && target.dataset.guestNoteStatus && draft) {
+      const note = (draft.notes || []).find(item => item.id === target.dataset.guestNoteStatus);
+      if (!note) return;
+      note.status = target.value;
+      note.timeline = Array.isArray(note.timeline) ? note.timeline : [];
+      note.timeline.push({ status: target.value, at: new Date().toISOString(), actor: actorName() });
+      if (locked() || !canEdit()) {
+        if (window.saveFollowStatus) window.saveFollowStatus({ source: 'guest', id: note.id, date: draft.date, status: target.value });
+        return;
+      }
+      queue();
+      return;
+    }
     if (target && target.dataset && target.dataset.top === 'arrivals') {
       const span = document.getElementById('guestOcc');
       if (span && draft) {
@@ -290,7 +446,8 @@
       scores: draft.scores, membership: draft.membership,
       preArrival: draft.preArrival, inHouse: draft.inHouse, departure: draft.departure,
       generalComments: draft.generalComments,
-      roomsInspection: draft.roomsInspection
+      roomsInspection: draft.roomsInspection,
+      notes: draft.notes || []
     };
   }
   async function save(){
@@ -440,6 +597,20 @@
       draft[row.dataset.list].splice(Number(row.dataset.i), 1);
       paint();
       queue();
+    }
+    if (e.target.id === 'guestAddNote' && canEdit() && !locked()) {
+      e.preventDefault();
+      addActionNote();
+      return;
+    }
+    const dropNote = e.target.closest && e.target.closest('[data-guest-note-del]');
+    if (dropNote && canEdit() && !locked()) {
+      e.preventDefault();
+      draft.notes = (draft.notes || []).filter(item => item.id !== dropNote.dataset.guestNoteDel);
+      if (window.state && window.state.openAcc) window.state.openAcc.add('guest-notes');
+      paint();
+      queue();
+      return;
     }
     if (e.target.id === 'guestSubmit') {
       e.preventDefault();
@@ -1074,9 +1245,29 @@
       label: 'Room ' + (row.room || '—'),
       photos: row.photos
     }));
-    if (evidence.length && pdf.pdfEvidence) {
-      out.g.y = await pdf.pdfEvidence(doc, W, out.g.y, evidence, out.M);
+    const notePhotos = (data.notes || []).filter(row => row.photo_url).map(row => ({
+      section: 'Action items',
+      label: row.department || 'Action item',
+      photos: [row.photo_url]
+    }));
+    const photos = evidence.concat(notePhotos);
+    if (photos.length && pdf.pdfEvidence) {
+      out.g.y = await pdf.pdfEvidence(doc, W, out.g.y, photos, out.M);
     }
+    const priorityName = value => ({ normal: 'Normal', follow: 'Needs follow-up', urgent: 'Urgent' }[value] || value || 'Normal');
+    const statusName = value => ({ open: 'Open', progress: 'In progress', closed: 'Closed' }[value] || value || 'Open');
+    out.table('Action items', [
+      {label: 'TIME', f: 0.12}, {label: 'DEPARTMENT', f: 0.18}, {label: 'PRIORITY', f: 0.16}, {label: 'STATUS', f: 0.14}, {label: 'NOTE', f: 0.40}
+    ], (data.notes || []).map(row => ({
+      cells: [
+        [part(dash(prettyTime(row.time) || row.time), GR.slate, true)],
+        [part(dash(row.department), GR.ink)],
+        [part(priorityName(row.priority), row.priority === 'urgent' ? GR.red : (row.priority === 'follow' ? GR.rose : GR.brand), true)],
+        [part(statusName(row.status), row.status === 'closed' ? GR.green : (row.status === 'progress' ? GR.rose : GR.slate), true)],
+        [part(dash(row.text), GR.ink)]
+      ],
+      subs: [['LOGGED BY', row.manager]]
+    })));
     out.finish(dateText, data.submittedBy);
     doc.save('novotel-guest-relation-' + date + '.pdf');
   }

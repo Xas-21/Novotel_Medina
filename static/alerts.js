@@ -181,7 +181,7 @@
       if (status !== item.status) {
         const updated = item.source === "duty"
           ? await api("/api/notes/" + encodeURIComponent(item.id), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: status }) })
-          : await api("/api/alerts/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "night", id: item.id, date: item.date, status: status }) });
+          : await api("/api/alerts/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: item.source, id: item.id, date: item.date, status: status }) });
         const ok = item.source === "duty" ? updated && updated.success : updated && updated.line;
         if (!ok) {
           error.hidden = false;

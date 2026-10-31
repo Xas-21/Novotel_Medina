@@ -788,11 +788,12 @@
   window.openFollowReport = async function (item) {
     state.followFocus = { source: item.source, id: item.id };
     state.selectedDate = item.date;
-    const section = item.source === 'night' ? 'night' : 'duty';
+    const section = item.source === 'night' ? 'night' : (item.source === 'guest' ? 'guest' : 'duty');
     state.section = section;
     state.view = 'today';
     const path = window.NovotelRoutes.pathFor(section, 'today');
     history.pushState({ section: section, view: 'today' }, '', path);
+    if (section === 'guest') state.openAcc.add('guest-notes');
     if (section === 'duty') await switchDate(item.date);
     else render();
   };

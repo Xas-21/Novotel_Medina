@@ -42,6 +42,7 @@ class GuestSave(BaseModel):
     departure: Optional[List[Dict[str, Any]]] = None
     generalComments: Optional[List[Dict[str, Any]]] = None
     roomsInspection: Optional[List[Dict[str, Any]]] = None
+    notes: Optional[List[Dict[str, Any]]] = None
 
 
 def _parse_date(value: str):
@@ -168,6 +169,51 @@ def _rooms_inspection(items):
     return rows
 
 
+def _action_notes(items):
+    rows = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        text = _text(item.get("text")).strip()
+        if not text:
+            continue
+        assignees = []
+        for raw in item.get("assignees") or []:
+            person = _text(raw).strip()
+            if person and person not in assignees:
+                assignees.append(person)
+            if len(assignees) == 3:
+                break
+        status = _text(item.get("status")) or "open"
+        if status not in ("open", "progress", "closed"):
+            status = "open"
+        priority = _text(item.get("priority")) or "normal"
+        if priority not in ("normal", "follow", "urgent"):
+            priority = "normal"
+        timeline = []
+        for event in item.get("timeline") or []:
+            if isinstance(event, dict):
+                timeline.append({
+                    "status": _text(event.get("status")),
+                    "at": _text(event.get("at")),
+                    "actor": _text(event.get("actor")),
+                })
+        rows.append({
+            "id": _text(item.get("id")) or f"gn_{len(rows)}",
+            "department": _text(item.get("department")) or "Other",
+            "priority": priority,
+            "text": text,
+            "photo_url": _text(item.get("photo_url")) or None,
+            "manager": _text(item.get("manager")),
+            "time": _text(item.get("time")),
+            "status": status,
+            "assignees": assignees,
+            "createdBy": _text(item.get("createdBy")),
+            "timeline": timeline,
+        })
+    return rows
+
+
 def _body_from_save(data: GuestSave) -> dict:
     return {
         "shiftStart": _text(data.shiftStart) or _text(data.time),
@@ -184,6 +230,7 @@ def _body_from_save(data: GuestSave) -> dict:
         "departure": _rows(data.departure, ["room", "name", "membership", "arrival", "departure", "score", "feedback", "review", "action", "note", "callStatus", "contacted", "employeeRating", "priority"]),
         "generalComments": _rows(data.generalComments, ["comment", "time"]),
         "roomsInspection": _rooms_inspection(data.roomsInspection),
+        "notes": _action_notes(data.notes),
     }
 
 
