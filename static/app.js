@@ -1043,6 +1043,40 @@
       document.getElementById('actionPopClose').onclick = () => { state.actionPopup = false; renderOverlays(); };
     }
 
+    if (state.actionDetail && !state.modalImg) {
+      const item = actionItemsNow().find(n => n.id === state.actionDetail);
+      const bg = document.createElement('div');
+      bg.className = 'dmr-modal-bg';
+      const close = () => { state.actionDetail = null; renderOverlays(); };
+      if (!item) {
+        state.actionDetail = null;
+      } else {
+        const st = statusMeta(item.status);
+        const pr = priorityMeta(item.priority);
+        const assigned = (item.assignees || []).map(id => window.alertName ? window.alertName(id) : '').filter(Boolean);
+        const date = item.date || item.report_date || '';
+        bg.innerHTML = `
+          <div class="dmr-dialog action-detail-dialog" role="dialog" aria-modal="true">
+            <h3>${escapeHtml(item.department || 'Action item')}</h3>
+            <div class="dmr-entry-top">
+              <div><span class="dmr-tag dmr-tag-dept">${escapeHtml(date)}</span><span class="dmr-tag ${pr.cls}">${escapeHtml(pr.label)}</span><span class="dmr-tag ${st.cls}">${escapeHtml(st.label)}</span></div>
+              <div class="dmr-entry-time">${escapeHtml(item.time || '')}</div>
+            </div>
+            <p class="action-detail-copy">${escapeHtml(item.text || '')}</p>
+            <div class="dmr-sub">Logged by ${escapeHtml(item.manager || '')}${item.carried ? ' · Still open from an earlier report' : ''}</div>
+            ${assigned.length ? `<div class="alert-people">${assigned.map(name => `<span class="alert-person blue"><small>Assigned to</small>${escapeHtml(name)}</span>`).join('')}</div>` : ''}
+            ${item.photo_url ? `<img class="action-detail-shot" alt="Action item photo" src="${escapeHtml(item.photo_url)}" data-detail-photo>` : ''}
+            ${noteTimelineHtml(item)}
+            <div class="dmr-dialog-actions"><button type="button" class="dmr-btn dmr-btn-primary dmr-btn-sm" id="actionDetailClose">Close</button></div>
+          </div>`;
+        document.getElementById('dmrRoot').appendChild(bg);
+        document.getElementById('actionDetailClose').onclick = close;
+        bg.addEventListener('click', (e) => { if (e.target === bg) close(); });
+        const shot = bg.querySelector('[data-detail-photo]');
+        if (shot) shot.onclick = () => { state.modalImg = item.photo_url; renderOverlays(); };
+      }
+    }
+
     if (state.toast) {
       const t = document.createElement('div');
       t.className = 'dmr-toast';
@@ -1157,7 +1191,7 @@
               <div class="dmr-field"><label>Department</label><select id="f-dept">${DEPTS.map(d=>`<option>${d}</option>`).join('')}</select></div>
               <div class="dmr-field"><label>Priority</label><select id="f-priority">${PRIORITIES.map(p=>`<option value="${p.v}">${p.label}</option>`).join('')}</select></div>
             </div>
-            <div class="dmr-field"><label>Assign follow up staff</label><select id="f-assign" multiple size="4" aria-label="Assign follow up staff"></select></div>
+            ${assignPicker('duty')}
             <div class="dmr-field"><label>Detailed Note</label><textarea id="f-text" placeholder="Record maintenance issue, VIP requests, cleanliness observation..."></textarea></div>
             <div class="dmr-row" style="align-items:flex-end;">
               <div class="dmr-field" style="margin-bottom:0;">
@@ -1322,6 +1356,23 @@
     return `<div class="dmr-note-timeline">${events.map(ev => `<div>${escapeHtml(formatWhen(ev.at))} — ${escapeHtml(statusLabel(ev.status))} — ${escapeHtml(ev.actor || '')}</div>`).join('')}</div>`;
   }
 
+  function assignPicker(prefix) {
+    return `
+      <div class="dmr-row">
+        <div class="dmr-field assign-pick">
+          <label>Assign follow up staff</label>
+          <button type="button" class="assign-toggle" id="${prefix}-assign-btn" aria-expanded="false" aria-controls="${prefix}-assign-menu">
+            <span>Choose a person</span><span class="assign-caret" aria-hidden="true">▾</span>
+          </button>
+          <div class="assign-menu" id="${prefix}-assign-menu" data-box="${prefix}-assign-box" hidden></div>
+        </div>
+        <div class="dmr-field">
+          <label>Assigned</label>
+          <div class="assign-box" id="${prefix}-assign-box" data-ids=""><span class="assign-empty">None yet</span></div>
+        </div>
+      </div>`;
+  }
+
   function entryHtml(n) {
     const pr = priorityMeta(n.priority), st = statusMeta(n.status);
     const dutyWritable = canWrite(state.user && state.user.role, 'duty');
@@ -1413,7 +1464,10 @@
             <select data-action-status="${escapeHtml(item.id)}" ${writable ? '' : 'disabled'}>
               ${STATUSES.map(s => `<option value="${s.v}" ${s.v===item.status?'selected':''}>${s.label}</option>`).join('')}
             </select>
-            <button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-review-date="${escapeHtml(date)}">Open report</button>
+            <span class="dmr-action-btns">
+              <button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-action-detail="${escapeHtml(item.id)}">View details</button>
+              <button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-review-date="${escapeHtml(date)}" data-review-note="${escapeHtml(item.id)}">Open report</button>
+            </span>
           </div>
         </div>
       </details>`;
@@ -3680,8 +3734,8 @@
       addBtn.onclick = async () => {
         const text = document.getElementById('f-text').value.trim();
         if (!text) { showToast('Please type your note observation first'); return; }
-        const assign = document.getElementById('f-assign');
-        const assignees = assign ? Array.from(assign.selectedOptions).map(option => option.value) : [];
+        const box = document.getElementById('duty-assign-box');
+        const assignees = box && box.dataset.ids ? box.dataset.ids.split(',').filter(Boolean) : [];
         if (assignees.length > 3) { showToast('Choose up to 3 people'); return; }
         const draft = {
           department: document.getElementById('f-dept').value,
@@ -4010,7 +4064,7 @@
               <div class="dmr-field"><label>Department</label><select id="nightNoteDept">${DEPTS.map(d=>`<option>${escapeHtml(d)}</option>`).join('')}</select></div>
               <div class="dmr-field"><label>Priority</label><select id="nightNotePriority">${PRIORITIES.map(p=>`<option value="${p.v}">${escapeHtml(p.label)}</option>`).join('')}</select></div>
             </div>
-            <div class="dmr-field"><label>Assign follow up staff</label><select id="nightNoteAssign" multiple size="4" aria-label="Assign follow up staff"></select></div>
+            ${assignPicker('night')}
             <div class="dmr-field"><label>Detailed Note</label><textarea id="nightNoteText" placeholder="Record maintenance issue, VIP requests, cleanliness observation..."></textarea></div>
             <div class="dmr-row" style="align-items:flex-end;">
               <div class="dmr-field" style="margin-bottom:0;">
@@ -4127,18 +4181,31 @@
     return (state.analysisData && state.analysisData.actionItems) || [];
   }
 
-  function openDutyReport(date) {
+  function openDutyReport(date, noteId) {
     if (state.user && state.user.role === 'security') return;
     state.actionPopup = false;
+    state.actionDetail = null;
+    state.openAcc.add('notes');
     goTo('duty', 'today');
-    switchDate(date);
+    switchDate(date).then(() => {
+      const note = noteId && document.querySelector('.dmr-entry[data-id="' + noteId + '"]');
+      const acc = document.querySelector('.dmr-acc[data-acc="notes"]');
+      (note || acc) && (note || acc).scrollIntoView({ block: 'start' });
+    });
   }
 
   if (!document.body.dataset.actionBound) {
     document.body.dataset.actionBound = '1';
     document.body.addEventListener('click', (e) => {
+      const detail = e.target.closest && e.target.closest('[data-action-detail]');
+      if (detail) {
+        e.preventDefault();
+        state.actionDetail = detail.dataset.actionDetail;
+        renderOverlays();
+        return;
+      }
       const review = e.target.closest && e.target.closest('[data-review-date]');
-      if (review) { e.preventDefault(); openDutyReport(review.dataset.reviewDate); return; }
+      if (review) { e.preventDefault(); openDutyReport(review.dataset.reviewDate, review.dataset.reviewNote); return; }
       if (e.target.id === 'openActionsCard' || (e.target.closest && e.target.closest('#openActionsCard'))) {
         e.preventDefault();
         state.actionPopup = true;

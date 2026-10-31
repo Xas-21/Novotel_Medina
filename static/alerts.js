@@ -216,15 +216,47 @@
     paintParking();
   };
 
+  function chosenIds(box) {
+    return box && box.dataset.ids ? box.dataset.ids.split(",").filter(Boolean) : [];
+  }
+
+  function paintAssignBox(box) {
+    if (!box) return;
+    const ids = chosenIds(box);
+    box.innerHTML = ids.length ? ids.map(function (id) {
+      const name = window.alertName(id) || "Staff";
+      return '<span class="assign-chip"><span>' + esc(name) + '</span><button type="button" class="assign-x" data-assign-remove="' + esc(id) + '" aria-label="Remove ' + esc(name) + '">×</button></span>';
+    }).join("") : '<span class="assign-empty">None yet</span>';
+  }
+
+  function paintAssignMenus() {
+    document.querySelectorAll(".assign-menu").forEach(function (menu) {
+      const box = document.getElementById(menu.dataset.box);
+      const chosen = chosenIds(box);
+      const full = chosen.length >= 3;
+      menu.innerHTML = people.length ? people.map(function (person) {
+        const taken = chosen.indexOf(person.id) >= 0;
+        return '<div class="assign-row"><span>' + esc(person.name) + '</span><button type="button" class="assign-plus" data-assign-add="' + esc(person.id) + '"' + (taken || full ? " disabled" : "") + ' aria-label="Assign ' + esc(person.name) + '">+</button></div>';
+      }).join("") : '<div class="assign-row"><span>No people yet</span></div>';
+    });
+  }
+
+  function closeAssignMenus() {
+    document.querySelectorAll(".assign-menu").forEach(function (menu) { menu.hidden = true; });
+    document.querySelectorAll(".assign-toggle").forEach(function (btn) { btn.setAttribute("aria-expanded", "false"); });
+  }
+
   window.fillAlertAssigns = function () {
     const options = people.map(function (person) { return '<option value="' + esc(person.id) + '">' + esc(person.name) + "</option>"; }).join("");
-    document.querySelectorAll("#f-assign, #nightNoteAssign, [data-duty-assign], [data-night-assign]").forEach(function (sel) {
+    document.querySelectorAll("[data-duty-assign], [data-night-assign]").forEach(function (sel) {
       const selected = (sel.dataset.selected || "").split(",").filter(Boolean);
       const current = Array.from(sel.selectedOptions).map(function (option) { return option.value; });
       const keep = current.length ? current : selected;
       sel.innerHTML = options;
       Array.from(sel.options).forEach(function (option) { option.selected = keep.indexOf(option.value) >= 0; });
     });
+    paintAssignMenus();
+    document.querySelectorAll(".assign-box").forEach(paintAssignBox);
   };
 
   window.alertName = function (id) {
@@ -251,6 +283,45 @@
       menu.hidden = true;
       if (bell) bell.setAttribute("aria-expanded", "false");
     }
+    const plus = event.target.closest && event.target.closest("[data-assign-add]");
+    if (plus && !plus.disabled) {
+      event.preventDefault();
+      const menu = plus.closest(".assign-menu");
+      const box = menu && document.getElementById(menu.dataset.box);
+      const ids = chosenIds(box);
+      if (box && ids.length < 3 && ids.indexOf(plus.getAttribute("data-assign-add")) < 0) {
+        ids.push(plus.getAttribute("data-assign-add"));
+        box.dataset.ids = ids.join(",");
+        paintAssignBox(box);
+        paintAssignMenus();
+      }
+      return;
+    }
+    const remove = event.target.closest && event.target.closest("[data-assign-remove]");
+    if (remove) {
+      event.preventDefault();
+      const box = remove.closest(".assign-box");
+      const ids = chosenIds(box).filter(function (id) { return id !== remove.getAttribute("data-assign-remove"); });
+      if (box) box.dataset.ids = ids.join(",");
+      paintAssignBox(box);
+      paintAssignMenus();
+      return;
+    }
+    const toggle = event.target.closest && event.target.closest(".assign-toggle");
+    if (toggle) {
+      event.preventDefault();
+      event.stopPropagation();
+      const menu = document.getElementById(toggle.getAttribute("aria-controls"));
+      const willOpen = menu && menu.hidden;
+      closeAssignMenus();
+      if (willOpen) {
+        menu.hidden = false;
+        toggle.setAttribute("aria-expanded", "true");
+        paintAssignMenus();
+      }
+      return;
+    }
+    if (!event.target.closest || !event.target.closest(".assign-pick")) closeAssignMenus();
     const add = event.target.closest && event.target.closest("[data-follow-add]");
     if (!add) return;
     const box = add.parentElement && add.parentElement.querySelector("[data-follow-comment]");
@@ -262,7 +333,7 @@
   });
 
   document.addEventListener("change", async function (event) {
-    const sel = event.target.closest && event.target.closest("[data-duty-assign], #f-assign, #nightNoteAssign");
+    const sel = event.target.closest && event.target.closest("[data-duty-assign]");
     if (!sel || !sel.multiple) return;
     if (sel.selectedOptions.length > 3) Array.from(sel.selectedOptions).slice(3).forEach(function (option) { option.selected = false; });
     if (!sel.dataset.dutyAssign) return;

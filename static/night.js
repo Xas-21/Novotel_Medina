@@ -620,9 +620,8 @@
     const photo = document.getElementById('nightNotePhoto');
     const user = window.state && window.state.user;
     const name = user ? (((user.first_name || '') + ' ' + (user.last_name || '')).trim() || user.username || '') : '';
-    const assign = document.getElementById('nightNoteAssign');
-    const assignees = assign ? Array.from(assign.selectedOptions).map(option => option.value).slice(0, 3) : [];
-    if (assign && assign.selectedOptions.length > 3) { showNote('Choose up to 3 people'); return; }
+    const box = document.getElementById('night-assign-box');
+    const assignees = box && box.dataset.ids ? box.dataset.ids.split(',').filter(Boolean).slice(0, 3) : [];
     draft.inspection.notes.push({
       id: 'nn_' + Date.now(),
       department: (document.getElementById('nightNoteDept') || {}).value || 'Other',

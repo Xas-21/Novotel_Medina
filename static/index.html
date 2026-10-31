@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Novotel Medina - Daily Reports</title>
   <script>document.documentElement.dataset.theme = localStorage.getItem('novotel_theme') === 'dark' ? 'dark' : 'light';</script>
-  <link rel="stylesheet" href="/assets/style.css?v=55">
+  <link rel="stylesheet" href="/assets/style.css?v=59">
   <link rel="stylesheet" href="/assets/alerts.css?v=1">
   <link rel="icon" href="/assets/novotel-logo-blue.png">
 </head>
@@ -38,7 +38,12 @@
       <button type="button" id="menuBtn" class="topbar-icon" aria-expanded="false" aria-controls="dmrNav" aria-label="Menu" title="Menu">
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
       </button>
-      <img src="/assets/novotel-logo-blue.png" class="topbar-logo" alt="Novotel">
+      <span class="topbar-brand">
+        <span class="topbar-logo-clip">
+          <img src="/assets/novotel-logo-blue.png" class="topbar-logo" alt="Novotel">
+        </span>
+        <span class="topbar-city">Madinah</span>
+      </span>
       <span class="topbar-divider" aria-hidden="true"></span>
       <span id="mobileCrumb" class="topbar-title">Dashboard</span>
       <div class="topbar-period" id="topbarPeriod"></div>
@@ -68,7 +73,12 @@
     <button type="button" class="dmr-backdrop" id="navBackdrop" hidden aria-label="Close menu"></button>
     <nav class="dmr-nav" id="dmrNav" aria-label="Sections">
       <div class="nav-head">
-        <img src="/assets/novotel-logo-blue.png" class="nav-logo" alt="Novotel">
+        <span class="topbar-brand nav-brand">
+          <span class="topbar-logo-clip">
+            <img src="/assets/novotel-logo-blue.png" class="topbar-logo" alt="Novotel">
+          </span>
+          <span class="topbar-city">Madinah</span>
+        </span>
         <button type="button" class="nav-pin" id="navPin" aria-pressed="true" aria-label="Keep menu open" title="Keep menu open">
           <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
         </button>
@@ -119,10 +129,10 @@
   <script src="/assets/jspdf.umd.min.js"></script>
   <script src="/assets/chart.umd.min.js"></script>
   <script src="/assets/routes.js?v=4"></script>
-  <script src="/assets/app.js?v=69"></script>
-  <script src="/assets/night.js?v=75"></script>
+  <script src="/assets/app.js?v=71"></script>
+  <script src="/assets/night.js?v=76"></script>
   <script src="/assets/guest.js?v=30"></script>
   <script src="/assets/parking.js?v=12"></script>
-  <script src="/assets/alerts.js?v=5"></script>
+  <script src="/assets/alerts.js?v=6"></script>
 </body>
 </html>
