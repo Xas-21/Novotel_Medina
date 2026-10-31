@@ -396,8 +396,23 @@
     }
   }
 
+  // A report row saved before a section existed holds a short array (the column
+  // default is '[]'). Rendering tolerates that, but the ✓/✗ handler indexes by
+  // position and throws on a missing entry — dead buttons. Pad to full length on
+  // load so every section is indexable; the next auto-save heals the stored row.
+  function normalizeDayReport(rep) {
+    if (!rep) return rep;
+    const lists = rep.checklists || {};
+    AREA_SECTIONS.forEach(sec => {
+      lists[sec.key] = sec.items.map((_, i) => checkItemFrom((lists[sec.key] || [])[i]));
+    });
+    rep.checklists = lists;
+    rep.cafeteriaItems = CAFETERIA_ITEMS.map((_, i) => checkItemFrom((rep.cafeteriaItems || [])[i]));
+    return rep;
+  }
+
   async function loadReport(date) {
-    return await apiFetch(`/api/reports?date=${date}`);
+    return normalizeDayReport(await apiFetch(`/api/reports?date=${date}`));
   }
 
   async function persistReport() {
