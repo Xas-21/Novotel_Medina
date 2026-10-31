@@ -389,10 +389,25 @@ async def get_analysis(
     earlier_notes = [dict(n) for n in await earlier_cursor.fetchall()]
     action_timelines = await timelines_for(db, [n["id"] for n in earlier_notes + all_notes])
     report_status = {row["date"]: row["status"] for row in rows}
+    comment_keys = [f"duty:{n['id']}" for n in earlier_notes + all_notes]
+    comments_by_note = {}
+    if comment_keys:
+        marks = ",".join("?" for _ in comment_keys)
+        comment_rows = await db.execute(
+            f"SELECT followup_id, actor_name, body, created_at FROM followup_comments WHERE followup_id IN ({marks}) ORDER BY created_at ASC",
+            comment_keys,
+        )
+        for row in await comment_rows.fetchall():
+            comments_by_note.setdefault(row["followup_id"], []).append({
+                "at": (row["created_at"] or "").replace("T", " ")[:16],
+                "actor": row["actor_name"],
+                "body": row["body"],
+            })
     action_items = []
     for note in earlier_notes + all_notes:
         item = note_payload(note, action_timelines.get(note["id"]), note["report_date"] < start_date)
         item["reportStatus"] = "submitted" if item["carried"] else (report_status.get(note["report_date"]) or "")
+        item["comments"] = comments_by_note.get(f"duty:{note['id']}", [])
         action_items.append(item)
     
     total_fail = 0

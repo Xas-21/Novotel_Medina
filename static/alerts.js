@@ -132,6 +132,12 @@
     }
     card.hidden = false;
     dim.hidden = false;
+    card.classList.toggle("has-photo", !!item.photo);
+    const many = followItems.length > 1;
+    const hasNext = followIndex < followItems.length - 1;
+    const navHtml = many
+      ? '<div class="alert-nav"><button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" id="alertFollowPrev"' + (followIndex === 0 ? " disabled" : "") + '>Previous</button><button type="button" class="dmr-btn dmr-btn-sm' + (hasNext ? " alert-next-more" : "") + '" id="alertFollowNext"' + (hasNext ? "" : " disabled") + '>Next</button></div>'
+      : "";
     const peopleHtml = '<span class="alert-person brass"><small>Assigned by</small>' + esc(item.assignedBy || "—") + "</span>"
       + (item.assignedTo || []).map(function (name) { return '<span class="alert-person blue"><small>Assigned to</small>' + esc(name) + "</span>"; }).join("");
     card.innerHTML = ''
@@ -141,64 +147,59 @@
       + (item.text && item.text !== item.title ? '<p class="alert-copy">' + esc(item.text) + "</p>" : "")
       + (item.photo ? '<img class="alert-shot" alt="Action item photo" src="' + esc(item.photo) + '">' : '<div class="alert-nophoto">No photo on this item</div>')
       + '<div class="alert-people">' + peopleHtml + "</div>"
-      + '<ol class="alert-time" id="alertFollowTime">' + (item.lines || []).map(function (line) { return "<li><i></i><span>" + esc(line) + "</span></li>"; }).join("") + "</ol>"
+      + '<p class="alert-label">Timeline</p><ol class="alert-time" id="alertFollowTime">' + (item.lines || []).map(function (line) { return "<li><i></i><span>" + esc(line) + "</span></li>"; }).join("") + "</ol>"
+      + '<div class="alert-comments"><p class="alert-label">Comments</p>' + ((item.comments || []).length ? (item.comments || []).map(function (comment) {
+        return '<article class="alert-comment"><b>' + esc(comment.actor || "") + '</b><time>' + esc(comment.at || "") + '</time><p>' + esc(comment.body || "") + "</p></article>";
+      }).join("") : '<p class="alert-comment-empty">No comments yet.</p>') + "</div>"
       + '<div class="alert-form"><label>Status<select id="alertFollowStatus"><option value="open"' + (item.status === "open" ? " selected" : "") + '>Open</option><option value="progress"' + (item.status === "progress" ? " selected" : "") + '>In progress</option><option value="closed"' + (item.status === "closed" ? " selected" : "") + '>Closed</option></select></label>'
       + '<label>Comment<textarea id="alertFollowComment" placeholder="I followed up, it is not finished yet"></textarea></label>'
-      + '<p class="alert-error" id="alertFollowError" hidden>Type a comment first.</p>'
-      + '<div class="alert-actions"><button type="button" class="dmr-btn dmr-btn-primary dmr-btn-sm" id="alertFollowAdd">Add comment</button><button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" id="alertFollowReport">Open report</button></div></div>'
-      + '<div class="alert-foot"><div class="alert-nav"><button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" id="alertFollowPrev"' + (followIndex === 0 ? " disabled" : "") + '>Previous</button><button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" id="alertFollowNext"' + (followIndex >= followItems.length - 1 ? " disabled" : "") + '>Next</button></div>'
+      + '<p class="alert-error" id="alertFollowError" hidden>Change the status or type a comment, then press Save.</p>'
+      + '<div class="alert-actions"><button type="button" class="dmr-btn dmr-btn-primary dmr-btn-sm" id="alertFollowSave">Save</button><button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" id="alertFollowReport">Open report</button></div></div>'
+      + '<div class="alert-foot">' + navHtml
       + '<label class="alert-snooze">Remind me<select id="alertFollowSnooze"><option value="">Choose a time</option><option value="10">After 10 minutes</option><option value="30">After 30 minutes</option><option value="60">After 1 hour</option><option value="180">After 3 hours</option><option value="360">After 6 hours</option><option value="480">After 8 hours</option></select></label></div>';
     document.getElementById("alertFollowClose").addEventListener("click", function () { followClosed = true; hideFollow(); });
-    document.getElementById("alertFollowPrev").addEventListener("click", function () { followIndex = Math.max(0, followIndex - 1); paintFollow(); });
-    document.getElementById("alertFollowNext").addEventListener("click", function () { followIndex = Math.min(followItems.length - 1, followIndex + 1); paintFollow(); });
+    const prev = document.getElementById("alertFollowPrev");
+    const next = document.getElementById("alertFollowNext");
+    if (prev) prev.addEventListener("click", function () { followIndex = Math.max(0, followIndex - 1); paintFollow(); });
+    if (next) next.addEventListener("click", function () { followIndex = Math.min(followItems.length - 1, followIndex + 1); paintFollow(); });
     document.getElementById("alertFollowReport").addEventListener("click", function () {
       followClosed = true;
       hideFollow();
       if (window.openFollowReport) window.openFollowReport(item);
     });
     document.getElementById("alertFollowComment").addEventListener("input", function () { document.getElementById("alertFollowError").hidden = true; });
-    document.getElementById("alertFollowStatus").addEventListener("change", async function (event) {
-      const status = event.target.value;
-      const previous = item.status;
-      let updated = null;
-      let line = "";
-      if (item.source === "duty") {
-        updated = await api("/api/notes/" + encodeURIComponent(item.id), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: status }) });
-      } else {
-        updated = await api("/api/alerts/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "night", id: item.id, date: item.date, status: status }) });
-        line = updated && updated.line ? updated.line : "";
-      }
-      const saved = item.source === "duty" ? updated && updated.success : updated && updated.line;
-      if (!saved) {
-        event.target.value = previous;
-        const error = document.getElementById("alertFollowError");
-        if (error) {
-          error.hidden = false;
-          error.textContent = (updated && updated.detail) || "Could not save the status.";
-        }
-        return;
-      }
-      item.status = status;
-      const row = document.createElement("li");
-      row.innerHTML = "<i></i><span>" + esc(line || ("Just now — " + (STATUS[status] || status))) + "</span>";
-      document.getElementById("alertFollowTime").appendChild(row);
-      if (status === "closed") {
-        followItems.splice(followIndex, 1);
-        if (!followItems.length) hideFollow();
-        else { followIndex = Math.min(followIndex, followItems.length - 1); paintFollow(); }
-      }
-    });
-    document.getElementById("alertFollowAdd").addEventListener("click", async function () {
+    document.getElementById("alertFollowSave").addEventListener("click", async function () {
+      const status = document.getElementById("alertFollowStatus").value;
       const input = document.getElementById("alertFollowComment");
       const text = input.value.trim();
-      if (!text) { document.getElementById("alertFollowError").hidden = false; return; }
-      const saved = await api("/api/alerts/comment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: item.source, id: item.id, date: item.date, body: text }) });
-      if (!saved || !saved.line) { document.getElementById("alertFollowError").hidden = false; document.getElementById("alertFollowError").textContent = (saved && saved.detail) || "Could not save the comment."; return; }
-      const row = document.createElement("li");
-      row.innerHTML = "<i></i><span>" + esc(saved.line) + "</span>";
-      document.getElementById("alertFollowTime").appendChild(row);
-      item.lines.push(saved.line);
+      const error = document.getElementById("alertFollowError");
+      if (status === item.status && !text) {
+        error.hidden = false;
+        error.textContent = "Change the status or type a comment, then press Save.";
+        return;
+      }
+      if (status !== item.status) {
+        const updated = item.source === "duty"
+          ? await api("/api/notes/" + encodeURIComponent(item.id), { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: status }) })
+          : await api("/api/alerts/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "night", id: item.id, date: item.date, status: status }) });
+        const ok = item.source === "duty" ? updated && updated.success : updated && updated.line;
+        if (!ok) {
+          error.hidden = false;
+          error.textContent = (updated && updated.detail) || "Could not save the status.";
+          return;
+        }
+      }
+      if (text) {
+        const saved = await api("/api/alerts/comment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: item.source, id: item.id, date: item.date, body: text }) });
+        if (!saved || !saved.body) {
+          error.hidden = false;
+          error.textContent = (saved && saved.detail) || "Could not save the comment.";
+          await window.refreshFollowLive();
+          return;
+        }
+      }
       input.value = "";
+      await window.refreshFollowLive();
     });
     document.getElementById("alertFollowSnooze").addEventListener("change", async function (event) {
       const minutes = Number(event.target.value);
@@ -208,6 +209,27 @@
       hideFollow();
     });
   }
+
+  window.refreshFollowLive = async function () {
+    if (!signedIn() || followClosed) return;
+    const current = followItems[followIndex];
+    const data = await api("/api/alerts/followups");
+    if (followClosed) return;
+    const items = data && Array.isArray(data.items) ? data.items : [];
+    followItems = items;
+    if (!items.length) {
+      hideFollow();
+      return;
+    }
+    if (current) {
+      const idx = items.findIndex(function (row) {
+        return row.id === current.id && row.source === current.source && row.date === current.date;
+      });
+      followIndex = idx >= 0 ? idx : Math.min(followIndex, items.length - 1);
+    }
+    const typing = document.activeElement && (document.activeElement.id === "alertFollowComment" || document.activeElement.id === "alertFollowStatus");
+    if (!typing) paintFollow();
+  };
 
   window.refreshParkingAlerts = async function () {
     if (!signedIn()) return;

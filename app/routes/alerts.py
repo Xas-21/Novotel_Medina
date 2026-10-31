@@ -11,6 +11,7 @@ from app.auth import TokenData, can_write, require_auth
 from app.database import get_db
 from app.routes.notes import assignee_ids, is_note_follower
 from app.routes.parking import RIYADH
+from app.ws import ws_manager
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
@@ -243,12 +244,25 @@ async def _names(db) -> dict:
     return names
 
 
-async def _comments(db, followup_id: str) -> list:
+async def _comment_list(db, followup_id: str) -> list:
     cursor = await db.execute(
         "SELECT actor_name, body, created_at FROM followup_comments WHERE followup_id = ? ORDER BY created_at ASC",
         (followup_id,),
     )
-    return [_line(row["created_at"], "Comment", f"{row['actor_name']} — {row['body']}") for row in await cursor.fetchall()]
+    return [{
+        "at": (row["created_at"] or "").replace("T", " ")[:16],
+        "actor": row["actor_name"],
+        "body": row["body"],
+    } for row in await cursor.fetchall()]
+
+
+async def _tell_follow(source: str, item_id: str, date: str):
+    await ws_manager.broadcast({
+        "event": "FOLLOWUP_UPDATED",
+        "source": source,
+        "id": item_id,
+        "date": date or "",
+    })
 
 
 def _follows(user: TokenData, created_by: str, assignees: list, manager: str) -> bool:
@@ -280,7 +294,6 @@ async def followups(user: TokenData = Depends(require_auth), db: aiosqlite.Conne
         lines = [_line(row["created_at"], STATUS_LABEL.get(row["status"], row["status"]), row["actor"]) for row in await events.fetchall()]
         if not lines:
             lines = [_line(note["created_at"], note["status"], note["manager"])]
-        lines += await _comments(db, f"duty:{note['id']}")
         items.append({
             "id": note["id"], "source": "duty", "date": note["report_date"],
             "priority": note["priority"], "cls": _priority_cls(note["priority"]),
@@ -288,7 +301,8 @@ async def followups(user: TokenData = Depends(require_auth), db: aiosqlite.Conne
             "department": note["department"], "status": note["status"],
             "title": note["text"], "text": note["text"], "photo": note["photo_url"] or "",
             "assignedBy": note["manager"], "assignedTo": [names.get(item, item) for item in assignees],
-            "lines": lines, "reportLabel": f"Duty report · {note['report_date']}",
+            "lines": lines, "comments": await _comment_list(db, f"duty:{note['id']}"),
+            "reportLabel": f"Duty report · {note['report_date']}",
         })
     cursor = await db.execute("SELECT date, inspection_json FROM night_reports")
     for row in await cursor.fetchall():
@@ -307,7 +321,6 @@ async def followups(user: TokenData = Depends(require_auth), db: aiosqlite.Conne
                     lines.append(_line(event.get("at") or "", event.get("status") or "", event.get("actor") or ""))
             if not lines:
                 lines = [_line(note.get("time") or "", note.get("status") or "open", note.get("manager") or "")]
-            lines += await _comments(db, f"night:{row['date']}:{note.get('id')}")
             items.append({
                 "id": note.get("id") or "", "source": "night", "date": row["date"],
                 "priority": note.get("priority") or "normal", "cls": _priority_cls(note.get("priority") or "normal"),
@@ -315,7 +328,9 @@ async def followups(user: TokenData = Depends(require_auth), db: aiosqlite.Conne
                 "department": note.get("department") or "", "status": note.get("status") or "open",
                 "title": note.get("text") or "", "text": note.get("text") or "", "photo": note.get("photo_url") or "",
                 "assignedBy": note.get("manager") or "", "assignedTo": [names.get(item, item) for item in assignees],
-                "lines": [line for line in lines if line], "reportLabel": f"Night report · {row['date']}",
+                "lines": [line for line in lines if line],
+                "comments": await _comment_list(db, f"night:{row['date']}:{note.get('id')}"),
+                "reportLabel": f"Night report · {row['date']}",
             })
     return {"show": bool(items), "items": items}
 
@@ -378,7 +393,8 @@ async def add_comment(data: CommentBody, user: TokenData = Depends(require_auth)
         (f"fcm_{uuid.uuid4().hex[:12]}", followup_id, user.user_id, user.full_name, text, created),
     )
     await db.commit()
-    return {"line": _line(created, "Comment", f"{user.full_name} — {text}")}
+    await _tell_follow(data.source, data.id, data.date)
+    return {"line": _line(created, "Comment", f"{user.full_name} — {text}"), "at": created.replace("T", " ")[:16], "actor": user.full_name, "body": text}
 
 
 @router.post("/status")
@@ -399,4 +415,5 @@ async def set_follow_status(data: StatusBody, user: TokenData = Depends(require_
     note["timeline"] = timeline
     await db.execute("UPDATE night_reports SET inspection_json = ? WHERE date = ?", (json.dumps(inspection), data.date))
     await db.commit()
+    await _tell_follow("night", data.id, data.date)
     return {"line": _line(now, data.status, user.full_name)}

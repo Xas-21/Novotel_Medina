@@ -483,6 +483,10 @@
             if (window.refreshParkingAlerts) window.refreshParkingAlerts();
             return;
           }
+          if (msg.event === 'FOLLOWUP_UPDATED') {
+            if (window.refreshFollowLive) window.refreshFollowLive();
+            return;
+          }
           if (msg.date === state.selectedDate && state.section === 'duty' && state.view === 'today') {
             // Report saves bounce back on the socket. Re-rendering destroys the input being typed in.
             if (msg.event === 'REPORT_UPDATED' || msg.event === 'NIGHT_REPORT_UPDATED') return;
@@ -1055,6 +1059,8 @@
         const pr = priorityMeta(item.priority);
         const assigned = (item.assignees || []).map(id => window.alertName ? window.alertName(id) : '').filter(Boolean);
         const date = item.date || item.report_date || '';
+        const comments = item.comments || [];
+        const commentsHtml = `<div class="alert-comments"><p class="alert-label">Comments</p>${comments.length ? comments.map(comment => `<article class="alert-comment"><b>${escapeHtml(comment.actor || '')}</b><time>${escapeHtml(comment.at || '')}</time><p>${escapeHtml(comment.body || '')}</p></article>`).join('') : '<p class="alert-comment-empty">No comments yet.</p>'}</div>`;
         bg.innerHTML = `
           <div class="dmr-dialog action-detail-dialog" role="dialog" aria-modal="true">
             <h3>${escapeHtml(item.department || 'Action item')}</h3>
@@ -1067,6 +1073,7 @@
             ${assigned.length ? `<div class="alert-people">${assigned.map(name => `<span class="alert-person blue"><small>Assigned to</small>${escapeHtml(name)}</span>`).join('')}</div>` : ''}
             ${item.photo_url ? `<img class="action-detail-shot" alt="Action item photo" src="${escapeHtml(item.photo_url)}" data-detail-photo>` : ''}
             ${noteTimelineHtml(item)}
+            ${commentsHtml}
             <div class="dmr-dialog-actions"><button type="button" class="dmr-btn dmr-btn-primary dmr-btn-sm" id="actionDetailClose">Close</button></div>
           </div>`;
         document.getElementById('dmrRoot').appendChild(bg);
@@ -1389,7 +1396,6 @@
         <div class="dmr-entry-text">${escapeHtml(n.text)}</div>
         ${noteTimelineHtml(n)}
         ${assigned.length ? `<div class="alert-people">${assigned.map(name => `<span class="alert-person blue"><small>Assigned to</small>${escapeHtml(name)}</span>`).join('')}</div>` : ''}
-        ${dutyWritable && n.status !== 'closed' ? `<select multiple data-duty-assign="${escapeHtml(n.id)}" data-selected="${escapeHtml((n.assignees || []).join(','))}" size="3" aria-label="Assign follow up staff"></select>` : ''}
         ${focused && !dutyWritable ? `<label>Comment<textarea data-follow-comment="${escapeHtml(n.id)}" data-follow-source="duty" data-follow-date="${escapeHtml(n.report_date || n.date || '')}" placeholder="I followed up, it is not finished yet"></textarea></label><button type="button" class="dmr-btn dmr-btn-primary dmr-btn-sm" data-follow-add>Add comment</button>` : ''}
         <div class="dmr-entry-bottom">
           <div style="display:flex;align-items:center;gap:12px;">
@@ -4003,7 +4009,6 @@
         </div>
         <div class="dmr-entry-text">${escapeHtml(n.text)}</div>
         ${assigned.length ? `<div class="alert-people">${assigned.map(name => `<span class="alert-person blue"><small>Assigned to</small>${escapeHtml(name)}</span>`).join('')}</div>` : ''}
-        ${!locked && n.status !== 'closed' ? `<select multiple data-night-assign="${escapeHtml(n.id)}" data-selected="${escapeHtml((n.assignees || []).join(','))}" size="3" aria-label="Assign follow up staff"></select>` : ''}
         ${focused && locked ? `<label>Comment<textarea data-follow-comment="${escapeHtml(n.id)}" data-follow-source="night" data-follow-date="${escapeHtml(state.selectedDate || '')}" placeholder="I followed up, it is not finished yet"></textarea></label><button type="button" class="dmr-btn dmr-btn-primary dmr-btn-sm" data-follow-add>Add comment</button>` : ''}
         <div class="dmr-entry-bottom">
           <div style="display:flex;align-items:center;gap:12px;">

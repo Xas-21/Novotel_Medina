@@ -5,15 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Novotel Medina - Daily Reports</title>
   <script>document.documentElement.dataset.theme = localStorage.getItem('novotel_theme') === 'dark' ? 'dark' : 'light';</script>
-  <link rel="stylesheet" href="/assets/style.css?v=59">
-  <link rel="stylesheet" href="/assets/alerts.css?v=1">
+  <link rel="stylesheet" href="/assets/style.css?v=65">
+  <link rel="stylesheet" href="/assets/alerts.css?v=3">
   <link rel="icon" href="/assets/novotel-logo-blue.png">
 </head>
 <body>
   <!-- Login Screen -->
   <div id="loginScreen" class="login-screen" style="display:none;">
     <div class="login-card">
-      <img src="/assets/novotel-logo-blue.png" class="login-logo" alt="Novotel logo">
+      <div class="as-medallion" aria-hidden="true">
+        <img src="/assets/as-logo.png" alt="">
+      </div>
+      <img src="/assets/novotel-logo-blue.png" class="login-logo" alt="Novotel Madinah">
       <h1 class="login-title">Operation Management System</h1>
 
       <input type="text" id="login-username" placeholder="Username" autocomplete="username" autocapitalize="off">
@@ -21,6 +24,10 @@
       <label class="login-remember"><input type="checkbox" id="login-remember"> Remember me</label>
       <button id="loginBtn" class="dmr-btn dmr-btn-primary login-btn">Sign In</button>
       <button type="button" id="forgotBtn" class="login-forgot">Forgot your password?</button>
+      <div class="as-credit">
+        <img src="/assets/as-logo.png" alt="">
+        <span>Architecture by <strong>Advanced System LLC</strong></span>
+      </div>
       <div id="loginError" class="login-error"></div>
     </div>
     <div class="login-help" id="forgotDialog" hidden>
@@ -46,6 +53,11 @@
       </span>
       <span class="topbar-divider" aria-hidden="true"></span>
       <span id="mobileCrumb" class="topbar-title">Dashboard</span>
+      <span class="as-powered-rule" aria-hidden="true"></span>
+      <span class="as-powered">
+        <img src="/assets/as-logo.png" alt="">
+        <span class="as-powered-copy"><small>Powered by</small><strong>Advanced System</strong></span>
+      </span>
       <div class="topbar-period" id="topbarPeriod"></div>
       <button type="button" id="themeBtn" class="topbar-icon topbar-theme" aria-pressed="false" aria-label="Dark theme" title="Dark theme">
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="13.5" cy="6.5" r="1"/><circle cx="17.5" cy="10.5" r="1"/><circle cx="8.5" cy="7.5" r="1"/><circle cx="6.5" cy="12.5" r="1"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.93 0 1.65-.75 1.65-1.69 0-.44-.18-.84-.44-1.13-.29-.29-.44-.65-.44-1.13a1.64 1.64 0 0 1 1.67-1.67h2c3.05 0 5.55-2.5 5.55-5.55C21.97 6.01 17.46 2 12 2z"/></svg>
@@ -129,10 +141,10 @@
   <script src="/assets/jspdf.umd.min.js"></script>
   <script src="/assets/chart.umd.min.js"></script>
   <script src="/assets/routes.js?v=4"></script>
-  <script src="/assets/app.js?v=71"></script>
+  <script src="/assets/app.js?v=74"></script>
   <script src="/assets/night.js?v=76"></script>
   <script src="/assets/guest.js?v=30"></script>
   <script src="/assets/parking.js?v=12"></script>
-  <script src="/assets/alerts.js?v=6"></script>
+  <script src="/assets/alerts.js?v=8"></script>
 </body>
 </html>

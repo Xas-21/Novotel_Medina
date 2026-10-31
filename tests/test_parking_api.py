@@ -392,6 +392,13 @@ def test_parking_alerts_are_private_to_each_user_until_ok(api):
     assert note.status_code == 200 and note.json()["assignees"] == ["usr_guest"]
     guest_items = client.get("/api/alerts/followups", headers=guest).json()["items"]
     assert any(item["text"] == "Bathroom leak in 4003" and "Gina Guest" in item["assignedTo"] for item in guest_items)
+    saved = client.post("/api/alerts/comment", headers=guest, json={"source": "duty", "id": note.json()["id"], "body": "Called housekeeping"})
+    assert saved.status_code == 200 and saved.json()["actor"] == "Gina Guest"
+    again = client.get("/api/alerts/followups", headers=guest).json()["items"]
+    match = next(item for item in again if item["id"] == note.json()["id"])
+    assert match["comments"][0]["body"] == "Called housekeeping"
+    assert match["comments"][0]["actor"] == "Gina Guest"
+    assert all("Called housekeeping" not in line for line in match["lines"])
     assert client.post("/api/alerts/snooze", headers=guest, json={"minutes": 30}).status_code == 200
     assert client.get("/api/alerts/followups", headers=guest).json()["show"] is False
 

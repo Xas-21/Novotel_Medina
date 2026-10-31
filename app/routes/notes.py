@@ -7,6 +7,7 @@ import aiosqlite
 from app.database import get_db
 from app.models import NoteCreate, NoteUpdate, NoteResponse
 from app.auth import can_write, require_auth, TokenData
+from app.routes.parking import RIYADH
 from app.ws import ws_manager
 
 async def clean_assignees(db: aiosqlite.Connection, raw) -> list:
@@ -180,7 +181,7 @@ async def update_note(
         params.append(data.text)
         
     actor = user.full_name
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(RIYADH).isoformat(timespec="seconds")
     if updates:
         params.append(note_id)
         await db.execute(f"UPDATE notes SET {', '.join(updates)} WHERE id = ?", tuple(params))
@@ -198,6 +199,14 @@ async def update_note(
             "status": data.status,
             "priority": data.priority,
             "updatedBy": actor
+        })
+
+    if status_changed:
+        await ws_manager.broadcast({
+            "event": "FOLLOWUP_UPDATED",
+            "source": "duty",
+            "id": note_id,
+            "date": note["report_date"],
         })
 
     return {"success": True, "id": note_id, "status": data.status or note["status"], "timeline": timeline}
