@@ -1336,8 +1336,8 @@ body.nav-open { overflow: hidden; }
   align-items: center;
   justify-content: center;
   background:
-    radial-gradient(ellipse 70% 55% at 50% 42%, #ffffff 0%, rgba(255,255,255,0) 68%),
-    linear-gradient(180deg, #f4f2ed 0%, #e6e2da 100%);
+    radial-gradient(1200px 600px at 50% -10%, rgba(30, 34, 170, 0.45) 0%, transparent 55%),
+    #0a0d26;
   z-index: 200;
   padding: 48px 20px 24px;
 }
@@ -2279,9 +2279,6 @@ button.dash-tile:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 [data-theme="dark"] .kpi-bad { background: #2e1416; border-color: #6b2a2a; }
 [data-theme="dark"] .kpi-bad .kpi-side-num { color: #f28b82; }
 [data-theme="dark"] .parking-colour:has(input:checked) { background: #1d2260; }
-[data-theme="dark"] .login-screen {
-  background: radial-gradient(1200px 600px at 50% -10%, rgba(30, 34, 170, 0.45) 0%, transparent 55%), var(--paper);
-}
 [data-theme="dark"] .login-logo { filter: none; }
 [data-theme="dark"] .login-remember { color: #5b6673; }
 [data-theme="dark"] .login-card .login-forgot { color: #1e22aa; }
