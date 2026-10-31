@@ -417,6 +417,13 @@
       uploadNightNotePhoto(t);
       return;
     }
+    if (t.dataset && t.dataset.nightNoteStatus && editingLocked()) {
+      const pack = draft && draft.inspection;
+      const note = pack && (pack.notes || []).find(item => item.id === t.dataset.nightNoteStatus);
+      if (note) note.status = t.value;
+      if (window.saveFollowStatus) window.saveFollowStatus({ source: 'night', id: t.dataset.nightNoteStatus, date: draft && draft.date, status: t.value });
+      return;
+    }
     if (t.matches('input, textarea, select')) {
       if (e.type === 'change' && (t.dataset.money || t.dataset.fc === 'averageRate')) {
         const plain = moneyPlain(t.value);
@@ -613,6 +620,9 @@
     const photo = document.getElementById('nightNotePhoto');
     const user = window.state && window.state.user;
     const name = user ? (((user.first_name || '') + ' ' + (user.last_name || '')).trim() || user.username || '') : '';
+    const assign = document.getElementById('nightNoteAssign');
+    const assignees = assign ? Array.from(assign.selectedOptions).map(option => option.value).slice(0, 3) : [];
+    if (assign && assign.selectedOptions.length > 3) { showNote('Choose up to 3 people'); return; }
     draft.inspection.notes.push({
       id: 'nn_' + Date.now(),
       department: (document.getElementById('nightNoteDept') || {}).value || 'Other',
@@ -621,7 +631,9 @@
       photo_url: photo && photo.dataset.url ? photo.dataset.url : null,
       manager: user && user.title ? (name + ' — ' + user.title) : name,
       time: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Riyadh' }),
-      status: 'open'
+      status: 'open',
+      assignees: assignees,
+      createdBy: user && user.id ? user.id : ''
     });
     if (window.state) window.state.openAcc.add('notes');
     paint();
@@ -769,6 +781,10 @@
     form.querySelectorAll('[data-night-note-status]').forEach(sel => {
       const note = (pack.notes || []).find(n => n.id === sel.dataset.nightNoteStatus);
       if (note) note.status = sel.value;
+    });
+    form.querySelectorAll('[data-night-assign]').forEach(sel => {
+      const note = (pack.notes || []).find(n => n.id === sel.dataset.nightAssign);
+      if (note) note.assignees = Array.from(sel.selectedOptions).map(option => option.value).slice(0, 3);
     });
   }
 
@@ -1937,8 +1953,9 @@
   function dashPopupContent(kind){
     const duty = (fullPack && fullPack.duty) || {};
     const guest = (fullPack && fullPack.guest) || {};
-    const guestButton = date => `<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-open-guest="${escapeHtml(date)}">Open Guest Relation report</button>`;
-    const dutyButton = date => `<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-review-date="${escapeHtml(date)}">Open Duty report</button>`;
+    const hideReportLinks = window.state && window.state.user && window.state.user.role === 'security';
+    const guestButton = date => hideReportLinks ? '' : `<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-open-guest="${escapeHtml(date)}">Open Guest Relation report</button>`;
+    const dutyButton = date => hideReportLinks ? '' : `<button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-review-date="${escapeHtml(date)}">Open Duty report</button>`;
     const row = (heading, meta, fields, button) => `
       <div class="dash-pop-row">
         <div class="dash-pop-main">
@@ -2053,6 +2070,7 @@
     const guestReport = target.closest('[data-open-guest]');
     if (guestReport) {
       closeDashPopup();
+      if (window.state && window.state.user && window.state.user.role === 'security') return;
       window.goTo('guest', 'today');
       window.state.selectedDate = guestReport.dataset.openGuest;
       window.renderApp();

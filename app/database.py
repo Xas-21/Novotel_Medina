@@ -218,6 +218,49 @@ async def init_db():
         if "details_json" not in log_cols:
             await db.execute("ALTER TABLE parking_logs ADD COLUMN details_json TEXT NOT NULL DEFAULT '{}'")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_parking_logs_created ON parking_logs(created_at)")
+        note_cols = [r[1] for r in await (await db.execute("PRAGMA table_info(notes)")).fetchall()]
+        if "created_by" not in note_cols:
+            await db.execute("ALTER TABLE notes ADD COLUMN created_by TEXT NOT NULL DEFAULT ''")
+        if "assignees_json" not in note_cols:
+            await db.execute("ALTER TABLE notes ADD COLUMN assignees_json TEXT NOT NULL DEFAULT '[]'")
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS parking_alerts (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            spot_id TEXT NOT NULL,
+            floor TEXT NOT NULL DEFAULT '',
+            guest_name TEXT NOT NULL DEFAULT '',
+            room_label TEXT NOT NULL DEFAULT '',
+            actor_name TEXT NOT NULL DEFAULT '',
+            log_id TEXT NOT NULL DEFAULT '',
+            details_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            dedupe_key TEXT NOT NULL UNIQUE
+        )
+        """)
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS parking_alert_reads (
+            alert_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            PRIMARY KEY (alert_id, user_id)
+        )
+        """)
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS followup_comments (
+            id TEXT PRIMARY KEY,
+            followup_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            actor_name TEXT NOT NULL DEFAULT '',
+            body TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
+        await db.execute("""
+        CREATE TABLE IF NOT EXISTS followup_snooze (
+            user_id TEXT PRIMARY KEY,
+            until_ts REAL NOT NULL
+        )
+        """)
         for floor, count, handicap, small in (("B2", 22, 15, (7, 11)), ("B3", 21, 12, (7, 11))):
             await db.executemany(
                 "INSERT OR IGNORE INTO parking_spots (id, floor, number, size, is_handicap) VALUES (?, ?, ?, ?, ?)",

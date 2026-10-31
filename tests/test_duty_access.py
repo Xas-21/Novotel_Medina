@@ -503,7 +503,25 @@ def test_create_user_rejects_unknown_role(api):
         },
     )
     assert res.status_code == 400
-    assert res.json()["detail"] == "Role must be staff, night, guest, parking, or admin"
+    assert res.json()["detail"] == "Role must be staff, night, guest, parking, security, or admin"
+
+
+def test_admin_can_create_a_security_user(api):
+    client, _ = api
+    res = client.post(
+        "/api/auth/users",
+        headers=_headers(USERS["admin"]),
+        json={
+            "username": "sec.user",
+            "password": "secret",
+            "first_name": "Samir",
+            "last_name": "Guard",
+            "title": "Security",
+            "role": "security",
+        },
+    )
+    assert res.status_code == 200
+    assert res.json()["role"] == "security"
 
 
 def test_user_form_offers_night_manager_between_staff_and_admin():
@@ -511,9 +529,13 @@ def test_user_form_offers_night_manager_between_staff_and_admin():
     staff = '<option value="staff">Staff</option>'
     night = '<option value="night">Night Manager</option>'
     guest = '<option value="guest">Guest Relation</option>'
+    parking = '<option value="parking">Parking</option>'
+    security = '<option value="security">Security</option>'
     admin = '<option value="admin">Admin</option>'
     assert staff in text
     assert night in text
     assert guest in text
+    assert parking in text
+    assert security in text
     assert admin in text
-    assert text.index(staff) < text.index(night) < text.index(guest) < text.index(admin)
+    assert text.index(staff) < text.index(night) < text.index(guest) < text.index(parking) < text.index(security) < text.index(admin)

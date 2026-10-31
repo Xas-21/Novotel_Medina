@@ -608,6 +608,40 @@ def test_night_inspection_roundtrip(api):
     assert blank.json()["inspection"] is None
 
 
+def test_open_night_page_does_not_reopen_a_followup_that_was_closed(api):
+    client, _db_path = api
+    headers = _headers(USERS["night"])
+    payload = dict(OCT_8)
+    payload["date"] = "2026-10-11"
+    payload["inspection"] = {"notes": [{
+        "id": "n1", "text": "leak", "department": "Maintenance", "priority": "urgent",
+        "status": "open", "manager": "Nora Night — Night Manager", "time": "01:00", "timeline": [],
+    }]}
+    assert client.put("/api/night", json=payload, headers=headers).status_code == 200
+    closed = client.post("/api/alerts/status", headers=headers, json={
+        "source": "night", "id": "n1", "date": "2026-10-11", "status": "closed",
+    })
+    assert closed.status_code == 200
+    stale = dict(payload)
+    stale["roomsOccupied"] = 100
+    stale["inspection"] = {"notes": [{
+        "id": "n1", "text": "leak fixed in the note text", "department": "Maintenance", "priority": "urgent",
+        "status": "open", "manager": "Nora Night — Night Manager", "time": "01:00", "timeline": [],
+    }]}
+    assert client.put("/api/night", json=stale, headers=headers).status_code == 200
+    saved = client.get("/api/night?date=2026-10-11", headers=headers).json()
+    note = saved["inspection"]["notes"][0]
+    assert saved["roomsOccupied"] == 100
+    assert note["text"] == "leak fixed in the note text"
+    assert note["status"] == "closed"
+    assert len(note["timeline"]) == 1
+    current = dict(stale)
+    current["inspection"] = {"notes": [dict(note, status="progress")]}
+    assert client.put("/api/night", json=current, headers=headers).status_code == 200
+    updated = client.get("/api/night?date=2026-10-11", headers=headers).json()["inspection"]["notes"][0]
+    assert updated["status"] == "progress"
+
+
 def test_deleted_user_token_is_rejected(api):
     client, db_path = api
     headers = _headers(USERS["staff"])

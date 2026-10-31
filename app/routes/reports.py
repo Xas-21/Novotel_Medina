@@ -109,13 +109,13 @@ async def get_report(date: str, db: aiosqlite.Connection = Depends(get_db), user
     
     # Also fetch notes for this date
     notes_cursor = await db.execute(
-        "SELECT id, report_date, department, priority, text, photo_url, manager, time, status, created_at FROM notes WHERE report_date = ? ORDER BY created_at ASC",
+        "SELECT id, report_date, department, priority, text, photo_url, manager, time, status, created_at, created_by, assignees_json FROM notes WHERE report_date = ? ORDER BY created_at ASC",
         (date,)
     )
     own_rows = [dict(n) for n in await notes_cursor.fetchall()]
     carried_cursor = await db.execute(
         """
-        SELECT n.id, n.report_date, n.department, n.priority, n.text, n.photo_url, n.manager, n.time, n.status, n.created_at
+        SELECT n.id, n.report_date, n.department, n.priority, n.text, n.photo_url, n.manager, n.time, n.status, n.created_at, n.created_by, n.assignees_json
         FROM notes n
         JOIN reports r ON r.date = n.report_date
         WHERE n.report_date < ? AND n.status IN ('open', 'progress') AND r.status = 'submitted'
@@ -378,7 +378,7 @@ async def get_analysis(
     all_notes = [dict(n) for n in notes_rows]
     earlier_cursor = await db.execute(
         """
-        SELECT n.id, n.report_date, n.department, n.priority, n.text, n.photo_url, n.manager, n.time, n.status, n.created_at
+        SELECT n.id, n.report_date, n.department, n.priority, n.text, n.photo_url, n.manager, n.time, n.status, n.created_at, n.created_by, n.assignees_json
         FROM notes n
         JOIN reports r ON r.date = n.report_date
         WHERE n.report_date < ? AND n.status IN ('open', 'progress') AND r.status = 'submitted'

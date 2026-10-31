@@ -9,13 +9,22 @@
   let logItems = [];
   let modal = null;
   let form = { room: '', isVisitor: false, date: '', time: '' };
-  let filters = { spot: '', date: '', user: '' };
+  let filters = { spot: '', room: '', date: '', user: '' };
+  let logShown = 20;
   let filterTimer = null;
   let loadToken = 0;
+  let holds = {};
+  let holdingId = null;
+  let holdSeq = 0;
+  let holdTimer = null;
 
   function escapeHtml(s){ return (s == null ? '' : s).toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   function role(){ return window.state && window.state.user ? window.state.user.role : ''; }
   function canEdit(){ return !!window.canWrite(role(), 'parking'); }
+  function canCheckOut(spot){
+    if (canEdit()) return true;
+    return role() === 'security' && (spotClass(spot) === 'due-today' || spotClass(spot) === 'overdue');
+  }
   function today(){ return window.todayStr(); }
   function tomorrow(){
     const d = new Date(today() + 'T00:00:00');
@@ -27,17 +36,47 @@
     return 'Could not save. Please try again.';
   }
 
+  function myId(){ return window.state && window.state.user ? window.state.user.id : ''; }
+  function heldByOther(id){
+    const item = holds[id];
+    if (!item || item.until <= Date.now() / 1000) return false;
+    return item.userId !== myId();
+  }
+  function releaseSpot(id){
+    if (!id) return;
+    window.apiFetch('/api/parking/spots/' + encodeURIComponent(id) + '/release', { method: 'POST' });
+  }
+  function releaseHold(){
+    const id = holdingId;
+    holdingId = null;
+    holdSeq++;
+    if (holdTimer) { clearInterval(holdTimer); holdTimer = null; }
+    delete holds[id];
+    releaseSpot(id);
+  }
+  function rememberHolds(list){
+    const next = {};
+    (list || []).forEach(spot => {
+      if (spot.heldBy) next[spot.id] = { userId: spot.heldBy, until: spot.heldUntil || 0 };
+    });
+    if (holdingId && holds[holdingId]) next[holdingId] = holds[holdingId];
+    holds = next;
+  }
+
   function renderParkingSection(){
     const state = window.state;
     if (!state || state.section !== 'parking') return '';
+    if (holdingId) releaseHold();
     modal = null;
     if (state.view === 'logs') {
+      logShown = 20;
       queueMicrotask(loadLogs);
       queueMicrotask(loadUserFilter);
       return `
         <div class="dmr-sub">Every check-in, check-out, extension, and out-of-service change on the parking floors. Click an entry to see all its details.</div>
         <div class="dmr-card parking-filters">
           <div class="dmr-field"><label>Parking Number</label><input id="parkFilterSpot" data-filter="spot" placeholder="e.g. B2-5" value="${escapeHtml(filters.spot)}"></div>
+          <div class="dmr-field"><label>Room Number</label><input id="parkFilterRoom" data-filter="room" inputmode="numeric" placeholder="e.g. 4003" value="${escapeHtml(filters.room)}"></div>
           <div class="dmr-field"><label>Filter by Date</label><input type="date" data-filter="date" value="${escapeHtml(filters.date)}"></div>
           <div class="dmr-field"><label>Filter by User</label><select data-filter="user" id="parkFilterUser">${userOptions([])}</select></div>
           <button type="button" class="dmr-btn dmr-btn-ghost" id="parkFilterClear">Clear Filters</button>
@@ -47,7 +86,7 @@
     }
     queueMicrotask(loadSpots);
     return `
-      <div class="dmr-sub">Tap a free spot to check a car in. Tap a taken spot to check it out or extend the stay.</div>
+      <div class="dmr-sub">${role() === 'security' ? 'Tap an occupied spot to see who is parked. Check-out is only available for cars due out today or overdue.' : 'Tap a free spot to check a car in. Tap a taken spot to check it out or extend the stay.'}</div>
       <div class="parking-legend">
         <span><i class="parking-swatch available"></i>Available</span>
         <span><i class="parking-swatch occupied"></i>Occupied</span>
@@ -65,6 +104,7 @@
     const data = await window.apiFetch('/api/parking/spots');
     if (!Array.isArray(data)) return;
     spots = data;
+    rememberHolds(spots);
     paintSpots();
   }
 
@@ -102,7 +142,7 @@
           <div class="parking-floor-head"><h3>Floor ${escapeHtml(floor)}</h3><span>${free} of ${list.length} free${overdue ? ` · <b class="parking-overdue-count">${overdue} overdue</b>` : ''}</span></div>
           <div class="parking-grid">
             ${list.map(spot => `
-              <button type="button" class="parking-spot ${spotClass(spot)}${spot.isHandicap ? ' handicap' : ''}" data-spot="${escapeHtml(spot.id)}" aria-label="Spot ${escapeHtml(spot.id)} ${outOfService(spot) ? 'out of service from ' + escapeHtml(spot.oosFrom) + ' to ' + escapeHtml(spot.oosTo) : (spot.status === 'available' ? 'available' : 'taken by ' + escapeHtml(spot.isHod ? (spot.position || 'HOD') : spot.room))}${isOverdue(spot) ? ', overdue' : ''}">
+              <button type="button" class="parking-spot ${spotClass(spot)}${spot.isHandicap ? ' handicap' : ''}${heldByOther(spot.id) && spot.status === 'available' && !outOfService(spot) ? ' holding' : ''}" data-spot="${escapeHtml(spot.id)}" aria-label="Spot ${escapeHtml(spot.id)} ${outOfService(spot) ? 'out of service from ' + escapeHtml(spot.oosFrom) + ' to ' + escapeHtml(spot.oosTo) : (spot.status === 'available' ? 'available' : 'taken by ' + escapeHtml(spot.isHod ? (spot.position || 'HOD') : spot.room))}${isOverdue(spot) ? ', overdue' : ''}${heldByOther(spot.id) && spot.status === 'available' && !outOfService(spot) ? ', check-in in progress' : ''}">
                 ${isOverdue(spot) ? '<span class="parking-flag">OVERDUE</span>' : ''}
                 <span class="parking-size">${escapeHtml(spot.size)}</span>
                 <span class="parking-num">${spot.number}</span>
@@ -133,13 +173,43 @@
     if (outOfService(spot)) {
       modal = { spotId: id, type: 'oos-view' };
     } else if (spot.status === 'available') {
+      if (heldByOther(spot.id)) {
+        modal = { spotId: id, type: 'held' };
+        paintModal();
+        return;
+      }
       if (!canEdit()) return;
-      form = blankForm();
-      modal = { spotId: id, type: 'checkin' };
+      beginCheckin(id);
+      return;
     } else {
       modal = { spotId: id, type: 'checkout' };
     }
     paintModal();
+  }
+
+  async function beginCheckin(id){
+    const seq = ++holdSeq;
+    const res = await window.apiFetch('/api/parking/spots/' + encodeURIComponent(id) + '/hold', { method: 'POST' });
+    if (seq !== holdSeq) {
+      if (res && res.held) releaseSpot(id);
+      return;
+    }
+    if (!res || !res.held) {
+      modal = { spotId: id, type: 'held', message: (res && res.detail) || 'Could not open check-in. Please try again.' };
+      paintModal();
+      return;
+    }
+    holdingId = id;
+    holds[id] = { userId: myId(), until: res.until };
+    form = blankForm();
+    modal = { spotId: id, type: 'checkin' };
+    paintModal();
+    paintSpots();
+    if (holdTimer) clearInterval(holdTimer);
+    holdTimer = setInterval(() => {
+      if (holdingId !== id) return;
+      window.apiFetch('/api/parking/spots/' + encodeURIComponent(id) + '/hold', { method: 'POST' });
+    }, 30000);
   }
 
   function textField(label, key, placeholder){
@@ -226,6 +296,13 @@
           <button type="button" class="dmr-btn dmr-btn-ghost" data-park="oos-back">Back</button>
           <button type="button" class="dmr-btn parking-btn-grey" data-park="out-of-service">Confirm</button>
         </div>`;
+    } else if (modal.type === 'held') {
+      body = `
+        <h3>Spot ${id}</h3>
+        <p>${escapeHtml(modal.message || 'This parking is about to check-in by another user, please choose another spot to check-in.')}</p>
+        <div class="dmr-dialog-actions">
+          <button type="button" class="dmr-btn dmr-btn-primary" data-park="close">Close</button>
+        </div>`;
     } else if (modal.type === 'oos-view') {
       body = `
         <h3>Spot ${id}</h3>
@@ -241,20 +318,20 @@
         </div>`;
     } else if (modal.type === 'checkout') {
       body = `
-        <h3>Check Out - Spot ${id}</h3>
+        <h3>${canCheckOut(spot) ? 'Check Out' : 'Parked car'} - Spot ${id}</h3>
         <div class="parking-guest">${escapeHtml(occupantTitle(spot))}</div>
         ${carRows(spot) ? `<div class="parking-details">${carRows(spot)}</div>` : ''}
         <div class="parking-info">
           <strong>Expected Check-out:</strong>
           <span>${ICON_CALENDAR} ${escapeHtml(spot.dateOut)} &nbsp; ${ICON_CLOCK} ${escapeHtml(spot.timeOut)}</span>
           ${isOverdue(spot) ? '<span class="parking-overdue-note">Overdue — the expected check-out time has passed.</span>' : ''}
+          ${role() === 'security' && !canCheckOut(spot) ? '<span class="parking-overdue-note">Not due out today. Security cannot check this car out.</span>' : ''}
         </div>
         <div class="night-note" id="parkErr"></div>
         <div class="dmr-dialog-actions">
           <button type="button" class="dmr-btn dmr-btn-ghost" data-park="close">Cancel</button>
-          ${canEdit() ? `
-          <button type="button" class="dmr-btn parking-btn-warn" data-park="extend-open">Extend</button>
-          <button type="button" class="dmr-btn parking-btn-danger" data-park="checkout">Check-Out</button>` : ''}
+          ${canEdit() ? '<button type="button" class="dmr-btn parking-btn-warn" data-park="extend-open">Extend</button>' : ''}
+          ${canCheckOut(spot) ? '<button type="button" class="dmr-btn parking-btn-danger" data-park="checkout">Check-Out</button>' : ''}
         </div>`;
     } else if (modal.type === 'extend') {
       body = `
@@ -287,8 +364,10 @@
   }
 
   function closeModal(){
+    const closing = modal;
     modal = null;
     paintModal();
+    if (closing && holdingId && closing.spotId === holdingId && (closing.type === 'checkin' || closing.type === 'oos')) releaseHold();
   }
 
   async function onModalClick(e){
@@ -349,6 +428,8 @@
   function applySpot(fresh){
     const i = spots.findIndex(s => s.id === fresh.id);
     if (i >= 0) spots[i] = fresh;
+    if (fresh.heldBy) holds[fresh.id] = { userId: fresh.heldBy, until: fresh.heldUntil || 0 };
+    else if (fresh.id !== holdingId) delete holds[fresh.id];
     paintSpots();
   }
 
@@ -368,6 +449,7 @@
     const token = ++loadToken;
     const query = new URLSearchParams();
     Object.keys(filters).forEach(key => { if (filters[key].trim()) query.set(key, filters[key].trim()); });
+    query.set('limit', String(logShown));
     const data = await window.apiFetch('/api/parking/logs?' + query.toString());
     if (token !== loadToken) return;
     paintLogs(data);
@@ -392,8 +474,13 @@
           <tbody>${rows}</tbody>
         </table>
       </div>
-      ${data && data.more ? `<div class="dmr-sub parking-more">Showing the latest ${items.length} entries. Use the filters to find older ones.</div>` : ''}`;
+      ${data && data.more ? '<div class="parking-more"><button type="button" class="dmr-btn dmr-btn-ghost" id="parkLogMore">View more</button></div>' : ''}`;
     const openRow = e => {
+      if (e.target.closest('#parkLogMore')) {
+        logShown += 10;
+        loadLogs();
+        return;
+      }
       const row = e.target.closest('[data-log]');
       if (row) showLog(row.dataset.log);
     };
@@ -437,16 +524,26 @@
     document.querySelectorAll('[data-filter]').forEach(input => {
       input.oninput = input.onchange = () => {
         filters[input.dataset.filter] = input.value;
+        logShown = 20;
         if (filterTimer) clearTimeout(filterTimer);
         filterTimer = setTimeout(loadLogs, 250);
       };
     });
     const clear = document.getElementById('parkFilterClear');
     if (clear) clear.onclick = () => {
-      filters = { spot: '', date: '', user: '' };
+      filters = { spot: '', room: '', date: '', user: '' };
+      logShown = 20;
       document.querySelectorAll('[data-filter]').forEach(input => { input.value = ''; });
       loadLogs();
     };
+  }
+
+  function onParkingHold(msg){
+    if (!msg || !msg.spotId) return;
+    if (msg.held) holds[msg.spotId] = { userId: msg.userId, until: msg.until || 0 };
+    else if (msg.spotId !== holdingId) delete holds[msg.spotId];
+    const state = window.state;
+    if (state && state.section === 'parking' && state.view !== 'logs') paintSpots();
   }
 
   function onParkingUpdate(msg){
@@ -471,7 +568,20 @@
     return counts;
   }
 
+  window.addEventListener('pagehide', () => {
+    if (!holdingId || !window.state || !window.state.token) return;
+    const id = holdingId;
+    holdingId = null;
+    if (holdTimer) { clearInterval(holdTimer); holdTimer = null; }
+    fetch('/api/parking/spots/' + encodeURIComponent(id) + '/release', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + window.state.token },
+      keepalive: true
+    });
+  });
+
   window.parkingCounts = parkingCounts;
   window.renderParkingSection = renderParkingSection;
   window.onParkingUpdate = onParkingUpdate;
+  window.onParkingHold = onParkingHold;
 })();

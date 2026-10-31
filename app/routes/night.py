@@ -435,6 +435,31 @@ async def get_night(
     return await _response(db, date, await _get_row(db, date))
 
 
+def _keep_newer_note_status(inspection, existing):
+    # The open Night page can save an older copy over a follow-up close. Keep the stored status when its history is longer.
+    if not isinstance(inspection, dict) or not isinstance(existing, dict):
+        return inspection
+    stored = {}
+    for note in existing.get("notes") or []:
+        if isinstance(note, dict) and note.get("id"):
+            stored[note["id"]] = note
+    notes = inspection.get("notes")
+    if not isinstance(notes, list):
+        return inspection
+    for note in notes:
+        if not isinstance(note, dict):
+            continue
+        old = stored.get(note.get("id"))
+        if not old:
+            continue
+        old_line = old.get("timeline") if isinstance(old.get("timeline"), list) else []
+        new_line = note.get("timeline") if isinstance(note.get("timeline"), list) else []
+        if len(old_line) > len(new_line):
+            note["status"] = old.get("status")
+            note["timeline"] = old_line
+    return inspection
+
+
 @router.put("")
 async def save_night(
     data: NightSave,
@@ -465,6 +490,8 @@ async def save_night(
     checklist = data.checklist if data.checklist is not None else (existing_checklist if existing_checklist is not None else _blank_checklist())
     comments = _comments_for_save(data.comments, existing_comments)
     inspection = data.inspection if data.inspection is not None else (existing_inspection if existing_inspection is not None else {})
+    if data.inspection is not None and existing_inspection is not None:
+        inspection = _keep_newer_note_status(inspection, existing_inspection)
     now = _now()
 
     if row:

@@ -31,6 +31,9 @@
     if (role === "parking" && route.section !== "parking" && route.section !== "full") {
       return { section: "parking", view: "manage" };
     }
+    if (role === "security" && route.section !== "parking" && route.section !== "full") {
+      return { section: "full", view: "today" };
+    }
     if (role === "guest" && route.section !== "guest" && route.section !== "parking" && route.section !== "full") {
       return { section: "guest", view: "today" };
     }

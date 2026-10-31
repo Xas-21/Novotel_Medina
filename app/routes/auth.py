@@ -96,8 +96,8 @@ async def create_user(data: UserCreate, db: aiosqlite.Connection = Depends(get_d
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username and first name are required")
     if len(data.password or "") < 4:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 4 characters")
-    if data.role not in ("staff", "night", "guest", "parking", "admin"):
-        raise HTTPException(status_code=400, detail="Role must be staff, night, guest, parking, or admin")
+    if data.role not in ("staff", "night", "guest", "parking", "security", "admin"):
+        raise HTTPException(status_code=400, detail="Role must be staff, night, guest, parking, security, or admin")
 
     cursor = await db.execute("SELECT id FROM users WHERE username = ?", (username,))
     if await cursor.fetchone():

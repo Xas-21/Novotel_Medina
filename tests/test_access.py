@@ -38,3 +38,7 @@ def test_parking_roles():
         assert can_write(role, "parking") is True
     for section in ("duty", "night", "guest"):
         assert can_write("parking", section) is False
+
+def test_security_writes_nothing():
+    for section in ("duty", "night", "guest", "parking"):
+        assert can_write("security", section) is False

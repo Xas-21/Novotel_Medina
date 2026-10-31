@@ -38,6 +38,16 @@ test("parking role sees only the dashboard and Parkings", () => {
   assert.deepEqual(allowRoute({ section: "full", view: "users" }, "parking"), { section: "full", view: "today" });
 });
 
+test("security role sees only the dashboard and Parkings", () => {
+  assert.deepEqual(allowRoute({ section: "full", view: "today" }, "security"), { section: "full", view: "today" });
+  assert.deepEqual(allowRoute({ section: "parking", view: "manage" }, "security"), { section: "parking", view: "manage" });
+  assert.deepEqual(allowRoute({ section: "parking", view: "logs" }, "security"), { section: "parking", view: "logs" });
+  assert.deepEqual(allowRoute({ section: "duty", view: "today" }, "security"), { section: "full", view: "today" });
+  assert.deepEqual(allowRoute({ section: "night", view: "archive" }, "security"), { section: "full", view: "today" });
+  assert.deepEqual(allowRoute({ section: "guest", view: "today" }, "security"), { section: "full", view: "today" });
+  assert.deepEqual(allowRoute({ section: "full", view: "users" }, "security"), { section: "full", view: "today" });
+});
+
 test("every other role can open Parkings", () => {
   for (const role of ["admin", "staff", "night", "guest"]) {
     assert.deepEqual(allowRoute({ section: "parking", view: "manage" }, role), { section: "parking", view: "manage" });

@@ -1,4 +1,5 @@
 import json
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -12,9 +13,15 @@ from app.ws import ws_manager
 
 router = APIRouter(prefix="/api/parking", tags=["parking"])
 
+# shortcut: holds live in this process and drop on restart; a closed browser expires after 90s
+HOLD_SECONDS = 90
+HELD_DETAIL = "This parking is about to check-in by another user, please choose another spot to check-in."
+_holds = {}
+
 # Saudi Arabia has no daylight saving, so a fixed offset matches Asia/Riyadh all year.
 RIYADH = timezone(timedelta(hours=3))
-LOG_LIMIT = 500
+LOG_PAGE = 20
+LOG_MAX = 2000
 
 
 class CheckIn(BaseModel):
@@ -56,6 +63,17 @@ def _today() -> str:
     return datetime.now(RIYADH).strftime("%Y-%m-%d")
 
 
+def _due_or_overdue(row) -> bool:
+    # Same split the floor uses: overdue once the checkout minute has passed,
+    # otherwise due out only when the checkout date is today.
+    if row["status"] != "occupied" or not row["date_out"]:
+        return False
+    when = f"{row['date_out']} {row['time_out'] or '00:00'}"
+    if when <= datetime.now(RIYADH).strftime("%Y-%m-%d %H:%M"):
+        return True
+    return row["date_out"] == _today()
+
+
 def _car(row):
     return {
         "room": row["room"],
@@ -71,8 +89,36 @@ def _car(row):
     }
 
 
+def _active_hold(spot_id: str):
+    item = _holds.get(spot_id)
+    if not item or item["until"] <= time.time():
+        _holds.pop(spot_id, None)
+        return None
+    return item
+
+
+def _held_by_other(spot_id: str, user_id: str) -> bool:
+    item = _active_hold(spot_id)
+    return bool(item and item["userId"] != user_id)
+
+
+def _drop_hold(spot_id: str) -> bool:
+    return _holds.pop(spot_id, None) is not None
+
+
+async def _broadcast_hold(spot_id: str, held: bool, user: TokenData):
+    item = _active_hold(spot_id) if held else None
+    await ws_manager.broadcast({
+        "event": "PARKING_HOLD",
+        "spotId": spot_id,
+        "userId": user.user_id,
+        "held": held,
+        "until": item["until"] if item else 0,
+    })
+
+
 def _spot(row):
-    return {
+    spot = {
         "id": row["id"],
         "floor": row["floor"],
         "number": row["number"],
@@ -83,6 +129,11 @@ def _spot(row):
         "oosFrom": row["oos_from"],
         "oosTo": row["oos_to"],
     }
+    item = _active_hold(row["id"])
+    if item:
+        spot["heldBy"] = item["userId"]
+        spot["heldUntil"] = item["until"]
+    return spot
 
 
 def _out_of_service_now(row) -> bool:
@@ -100,17 +151,22 @@ async def _get_spot(db, spot_id: str):
 
 async def _logged(db, user: TokenData, spot_id: str, action: str, details: dict):
     now = datetime.now(RIYADH)
+    log_id = f"plog_{uuid.uuid4().hex[:12]}"
     await db.execute(
         "INSERT INTO parking_logs (id, actor, action, spot_id, date, time, created_at, details_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (
-            f"plog_{uuid.uuid4().hex[:12]}", user.full_name, action, spot_id,
+            log_id, user.full_name, action, spot_id,
             now.strftime("%Y-%m-%d"), now.strftime("%I:%M:%S %p").lstrip("0"),
             now.isoformat(timespec="microseconds"), json.dumps(details),
         ),
     )
+    from app.routes.alerts import record_parking_event
+    alerted = await record_parking_event(db, user, spot_id, action, details, log_id, now.isoformat(timespec="microseconds"))
     await db.commit()
     spot = _spot(await _get_spot(db, spot_id))
     await ws_manager.broadcast({"event": "PARKING_UPDATED", "spot": spot})
+    if alerted:
+        await ws_manager.broadcast({"event": "PARKING_ALERT"})
     return spot
 
 
@@ -135,6 +191,8 @@ async def check_in(spot_id: str, data: CheckIn, user: TokenData = Depends(requir
     row = await _get_spot(db, spot_id)
     if _out_of_service_now(row):
         raise HTTPException(status_code=409, detail=f"Spot {spot_id} is out of service until {row['oos_to']}")
+    if _held_by_other(spot_id, user.user_id):
+        raise HTTPException(status_code=409, detail=HELD_DETAIL)
     stored_room = "" if data.isHod else ("VISITOR" if data.isVisitor else room)
     who = "HOD" if data.isHod else ("Visitor" if data.isVisitor else "Room " + room)
     cursor = await db.execute(
@@ -149,14 +207,23 @@ async def check_in(spot_id: str, data: CheckIn, user: TokenData = Depends(requir
     )
     if cursor.rowcount == 0:
         raise HTTPException(status_code=409, detail=f"Spot {spot_id} is already taken")
+    dropped = _drop_hold(spot_id)
     details = _car(await _get_spot(db, spot_id))
-    return await _logged(db, user, spot_id, f"Checked IN ({who})", details)
+    spot = await _logged(db, user, spot_id, f"Checked IN ({who})", details)
+    if dropped:
+        await _broadcast_hold(spot_id, False, user)
+    return spot
 
 
 @router.post("/spots/{spot_id}/checkout")
 async def check_out(spot_id: str, user: TokenData = Depends(require_auth), db: aiosqlite.Connection = Depends(get_db)):
-    _require_write(user)
-    details = _car(await _get_spot(db, spot_id))
+    row = await _get_spot(db, spot_id)
+    if user.role == "security":
+        if not _due_or_overdue(row):
+            raise HTTPException(status_code=403, detail="Security can check out only cars that are due out today or overdue")
+    else:
+        _require_write(user)
+    details = _car(row)
     cursor = await db.execute(
         """UPDATE parking_spots SET status = 'available', room = '', is_visitor = 0, is_hod = 0, position = '',
            date_out = '', time_out = '', guest_name = '', plate = '', car_model = '', car_colour = ''
@@ -219,6 +286,31 @@ def _contains(text: str) -> str:
     return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
+@router.post("/spots/{spot_id}/hold")
+async def hold_spot(spot_id: str, user: TokenData = Depends(require_auth), db: aiosqlite.Connection = Depends(get_db)):
+    _require_write(user)
+    row = await _get_spot(db, spot_id)
+    if row["status"] != "available" or _out_of_service_now(row):
+        raise HTTPException(status_code=409, detail=f"Spot {spot_id} is not free")
+    if _held_by_other(spot_id, user.user_id):
+        raise HTTPException(status_code=409, detail=HELD_DETAIL)
+    _holds[spot_id] = {"userId": user.user_id, "until": time.time() + HOLD_SECONDS}
+    await _broadcast_hold(spot_id, True, user)
+    item = _active_hold(spot_id)
+    return {"held": True, "until": item["until"]}
+
+
+@router.post("/spots/{spot_id}/release")
+async def release_spot(spot_id: str, user: TokenData = Depends(require_auth), db: aiosqlite.Connection = Depends(get_db)):
+    _require_write(user)
+    await _get_spot(db, spot_id)
+    item = _active_hold(spot_id)
+    if item and item["userId"] == user.user_id:
+        _drop_hold(spot_id)
+        await _broadcast_hold(spot_id, False, user)
+    return {"held": False}
+
+
 @router.get("/users")
 async def list_log_users(_: TokenData = Depends(require_auth), db: aiosqlite.Connection = Depends(get_db)):
     cursor = await db.execute("""
@@ -245,6 +337,8 @@ async def list_logs(
     spot: str = "",
     date: str = "",
     user: str = "",
+    room: str = "",
+    limit: int = LOG_PAGE,
     _: TokenData = Depends(require_auth),
     db: aiosqlite.Connection = Depends(get_db),
 ):
@@ -258,16 +352,20 @@ async def list_logs(
     if date.strip():
         where.append("date = ?")
         params.append(date.strip())
+    if room.strip():
+        where.append("json_extract(details_json, '$.room') = ?")
+        params.append(room.strip())
     sql = "SELECT * FROM parking_logs"
     if where:
         sql += " WHERE " + " AND ".join(where)
-    cursor = await db.execute(sql + " ORDER BY created_at DESC LIMIT ?", (*params, LOG_LIMIT + 1))
+    show = LOG_PAGE if limit < 1 else min(limit, LOG_MAX)
+    cursor = await db.execute(sql + " ORDER BY created_at DESC LIMIT ?", (*params, show + 1))
     rows = await cursor.fetchall()
     items = [
         {
             "id": r["id"], "actor": r["actor"], "action": r["action"], "spotId": r["spot_id"],
             "date": r["date"], "time": r["time"], "details": _details(r["details_json"]),
         }
-        for r in rows[:LOG_LIMIT]
+        for r in rows[:show]
     ]
-    return {"items": items, "more": len(rows) > LOG_LIMIT}
+    return {"items": items, "more": len(rows) > show}

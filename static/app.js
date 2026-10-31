@@ -475,6 +475,14 @@
             if (window.onParkingUpdate) window.onParkingUpdate(msg);
             return;
           }
+          if (msg.event === 'PARKING_HOLD') {
+            if (window.onParkingHold) window.onParkingHold(msg);
+            return;
+          }
+          if (msg.event === 'PARKING_ALERT') {
+            if (window.refreshParkingAlerts) window.refreshParkingAlerts();
+            return;
+          }
           if (msg.date === state.selectedDate && state.section === 'duty' && state.view === 'today') {
             // Report saves bounce back on the socket. Re-rendering destroys the input being typed in.
             if (msg.event === 'REPORT_UPDATED' || msg.event === 'NIGHT_REPORT_UPDATED') return;
@@ -763,11 +771,27 @@
   }
 
   function goTo(section, view) {
+    if (state.user && state.user.role === 'security') {
+      const allowed = window.NovotelRoutes.allowRoute({ section: section, view: view }, 'security');
+      section = allowed.section;
+      view = allowed.view;
+    }
     state.section = section;
     state.view = view;
     const path = window.NovotelRoutes.pathFor(section, view);
     history.pushState({ section: section, view: view }, "", path);
   }
+  window.openFollowReport = async function (item) {
+    state.followFocus = { source: item.source, id: item.id };
+    state.selectedDate = item.date;
+    const section = item.source === 'night' ? 'night' : 'duty';
+    state.section = section;
+    state.view = 'today';
+    const path = window.NovotelRoutes.pathFor(section, 'today');
+    history.pushState({ section: section, view: 'today' }, '', path);
+    if (section === 'duty') await switchDate(item.date);
+    else render();
+  };
   window.goTo = goTo;
 
   function applyPath() {
@@ -828,11 +852,12 @@
     if (settingsBtn) settingsBtn.style.display = admin ? 'flex' : 'none';
     const guestRole = state.user && state.user.role === 'guest';
     const parkingRole = state.user && state.user.role === 'parking';
+    const securityRole = state.user && state.user.role === 'security';
     document.querySelectorAll('[data-section="duty"], [data-section="night"], [data-nav-for="duty"], [data-nav-for="night"], [data-nav-for="general"]').forEach(el => {
-      el.style.display = guestRole || parkingRole ? 'none' : '';
+      el.style.display = guestRole || parkingRole || securityRole ? 'none' : '';
     });
     document.querySelectorAll('#dmrNav [data-section="guest"], #dmrNav [data-nav-for="guest"]').forEach(el => {
-      el.style.display = parkingRole ? 'none' : '';
+      el.style.display = parkingRole || securityRole ? 'none' : '';
     });
 
     document.querySelectorAll('.dmr-navbtn').forEach(b => {
@@ -1132,6 +1157,7 @@
               <div class="dmr-field"><label>Department</label><select id="f-dept">${DEPTS.map(d=>`<option>${d}</option>`).join('')}</select></div>
               <div class="dmr-field"><label>Priority</label><select id="f-priority">${PRIORITIES.map(p=>`<option value="${p.v}">${p.label}</option>`).join('')}</select></div>
             </div>
+            <div class="dmr-field"><label>Assign follow up staff</label><select id="f-assign" multiple size="4" aria-label="Assign follow up staff"></select></div>
             <div class="dmr-field"><label>Detailed Note</label><textarea id="f-text" placeholder="Record maintenance issue, VIP requests, cleanliness observation..."></textarea></div>
             <div class="dmr-row" style="align-items:flex-end;">
               <div class="dmr-field" style="margin-bottom:0;">
@@ -1299,6 +1325,9 @@
   function entryHtml(n) {
     const pr = priorityMeta(n.priority), st = statusMeta(n.status);
     const dutyWritable = canWrite(state.user && state.user.role, 'duty');
+    const focused = state.followFocus && state.followFocus.source === 'duty' && state.followFocus.id === n.id;
+    const canStatus = dutyWritable || focused;
+    const assigned = (n.assignees || []).map(id => window.alertName ? window.alertName(id) : '').filter(Boolean);
     return `
     <div class="dmr-entry" data-id="${n.id}">
       <div class="dmr-card dmr-entry-card">
@@ -1308,13 +1337,16 @@
         </div>
         <div class="dmr-entry-text">${escapeHtml(n.text)}</div>
         ${noteTimelineHtml(n)}
+        ${assigned.length ? `<div class="alert-people">${assigned.map(name => `<span class="alert-person blue"><small>Assigned to</small>${escapeHtml(name)}</span>`).join('')}</div>` : ''}
+        ${dutyWritable && n.status !== 'closed' ? `<select multiple data-duty-assign="${escapeHtml(n.id)}" data-selected="${escapeHtml((n.assignees || []).join(','))}" size="3" aria-label="Assign follow up staff"></select>` : ''}
+        ${focused && !dutyWritable ? `<label>Comment<textarea data-follow-comment="${escapeHtml(n.id)}" data-follow-source="duty" data-follow-date="${escapeHtml(n.report_date || n.date || '')}" placeholder="I followed up, it is not finished yet"></textarea></label><button type="button" class="dmr-btn dmr-btn-primary dmr-btn-sm" data-follow-add>Add comment</button>` : ''}
         <div class="dmr-entry-bottom">
           <div style="display:flex;align-items:center;gap:12px;">
             <span class="dmr-manager">Logged by: <b>${escapeHtml(n.manager)}</b></span>
             ${n.photo_url ? `<img src="${n.photo_url}" class="dmr-thumb" data-photo="${n.photo_url}">` : ''}
           </div>
           <div style="display:flex;align-items:center;gap:8px;">
-            <select class="dmr-status-select ${st.cls}" data-status-id="${n.id}" ${dutyWritable ? '' : 'disabled'}>
+            <select class="dmr-status-select ${st.cls}" data-status-id="${n.id}" ${canStatus ? '' : 'disabled'}>
               ${STATUSES.map(s => `<option value="${s.v}" ${s.v===n.status?'selected':''}>${s.label}</option>`).join('')}
             </select>
             ${n.carried || !dutyWritable ? '' : `<button class="dmr-del" data-del="${n.id}">✕</button>`}
@@ -2292,6 +2324,7 @@
           <option value="night">Night Manager</option>
           <option value="guest">Guest Relation</option>
           <option value="parking">Parking</option>
+          <option value="security">Security</option>
           <option value="admin">Admin</option>
         </select></div>
       </div>
@@ -2320,7 +2353,7 @@
             <div class="user-name">${escapeHtml(fullName(u))}</div>
             <div class="user-meta">@${escapeHtml(u.username)}${u.title ? ' · ' + escapeHtml(u.title) : ''}</div>
           </div>
-          <span class="user-role-badge ${u.role==='admin'?'user-role-admin':'user-role-staff'}">${u.role==='admin'?'Admin':(u.role==='night'?'Night Manager':(u.role==='guest'?'Guest Relation':(u.role==='parking'?'Parking':'Staff')))}</span>
+          <span class="user-role-badge ${u.role==='admin'?'user-role-admin':'user-role-staff'}">${u.role==='admin'?'Admin':(u.role==='night'?'Night Manager':(u.role==='guest'?'Guest Relation':(u.role==='parking'?'Parking':(u.role==='security'?'Security':'Staff'))))}</span>
           <button type="button" class="dmr-btn dmr-btn-ghost dmr-btn-sm" data-user-edit="${escapeHtml(u.id)}">Edit</button>
           ${state.user && u.id !== state.user.id ? `<button class="dmr-del" data-user-del="${u.id}" data-user-name="${escapeHtml(u.username)}" title="Delete user">✕</button>` : ''}
         </div>
@@ -3426,6 +3459,7 @@
 
   // ---------- Event Handlers ----------
   function attachHandlers() {
+    if (window.fillAlertAssigns) window.fillAlertAssigns();
     // Checklist photo file input (attached once)
     const checklistPhotoInput = document.getElementById('checklistPhotoInput');
     if (checklistPhotoInput && !checklistPhotoInput._bound) {
@@ -3646,11 +3680,15 @@
       addBtn.onclick = async () => {
         const text = document.getElementById('f-text').value.trim();
         if (!text) { showToast('Please type your note observation first'); return; }
+        const assign = document.getElementById('f-assign');
+        const assignees = assign ? Array.from(assign.selectedOptions).map(option => option.value) : [];
+        if (assignees.length > 3) { showToast('Choose up to 3 people'); return; }
         const draft = {
           department: document.getElementById('f-dept').value,
           priority: document.getElementById('f-priority').value,
           text,
-          photo_url: photoInput?.dataset.url || null
+          photo_url: photoInput?.dataset.url || null,
+          assignees
         };
         await submitNote(draft);
       };
@@ -3770,7 +3808,8 @@
         department: draft.department,
         priority: draft.priority,
         text: draft.text,
-        photo_url: draft.photo_url
+        photo_url: draft.photo_url,
+        assignees: draft.assignees || []
       })
     });
     if (res && res.id) {
@@ -3888,13 +3927,19 @@
         photo_url: (n && n.photo_url) || null,
         manager: (n && n.manager) || '',
         time: (n && n.time) || '',
-        status: (n && n.status) || 'open'
+        status: (n && n.status) || 'open',
+        assignees: Array.isArray(n && n.assignees) ? n.assignees.slice(0, 3) : [],
+        createdBy: (n && n.createdBy) || '',
+        timeline: Array.isArray(n && n.timeline) ? n.timeline : []
       }))
     };
   }
 
   function nightNoteHtml(n, locked) {
     const pr = priorityMeta(n.priority), st = statusMeta(n.status);
+    const focused = state.followFocus && state.followFocus.source === 'night' && state.followFocus.id === n.id;
+    const statusLocked = locked && !focused;
+    const assigned = (n.assignees || []).map(id => window.alertName ? window.alertName(id) : '').filter(Boolean);
     return `
     <div class="dmr-entry">
       <div class="dmr-card dmr-entry-card">
@@ -3903,13 +3948,16 @@
           <div class="dmr-entry-time">${escapeHtml(n.time)}</div>
         </div>
         <div class="dmr-entry-text">${escapeHtml(n.text)}</div>
+        ${assigned.length ? `<div class="alert-people">${assigned.map(name => `<span class="alert-person blue"><small>Assigned to</small>${escapeHtml(name)}</span>`).join('')}</div>` : ''}
+        ${!locked && n.status !== 'closed' ? `<select multiple data-night-assign="${escapeHtml(n.id)}" data-selected="${escapeHtml((n.assignees || []).join(','))}" size="3" aria-label="Assign follow up staff"></select>` : ''}
+        ${focused && locked ? `<label>Comment<textarea data-follow-comment="${escapeHtml(n.id)}" data-follow-source="night" data-follow-date="${escapeHtml(state.selectedDate || '')}" placeholder="I followed up, it is not finished yet"></textarea></label><button type="button" class="dmr-btn dmr-btn-primary dmr-btn-sm" data-follow-add>Add comment</button>` : ''}
         <div class="dmr-entry-bottom">
           <div style="display:flex;align-items:center;gap:12px;">
             <span class="dmr-manager">Logged by: <b>${escapeHtml(n.manager)}</b></span>
             ${n.photo_url ? `<img src="${escapeHtml(n.photo_url)}" class="dmr-thumb" data-photo="${escapeHtml(n.photo_url)}">` : ''}
           </div>
           <div style="display:flex;align-items:center;gap:8px;">
-            <select class="dmr-status-select ${st.cls}" data-night-note-status="${escapeHtml(n.id)}" ${locked ? 'disabled' : ''}>
+            <select class="dmr-status-select ${st.cls}" data-night-note-status="${escapeHtml(n.id)}" ${statusLocked ? 'disabled' : ''}>
               ${STATUSES.map(s => `<option value="${s.v}" ${s.v===n.status?'selected':''}>${s.label}</option>`).join('')}
             </select>
             ${locked ? '' : `<button class="dmr-del" type="button" data-night-note-del="${escapeHtml(n.id)}">✕</button>`}
@@ -3962,6 +4010,7 @@
               <div class="dmr-field"><label>Department</label><select id="nightNoteDept">${DEPTS.map(d=>`<option>${escapeHtml(d)}</option>`).join('')}</select></div>
               <div class="dmr-field"><label>Priority</label><select id="nightNotePriority">${PRIORITIES.map(p=>`<option value="${p.v}">${escapeHtml(p.label)}</option>`).join('')}</select></div>
             </div>
+            <div class="dmr-field"><label>Assign follow up staff</label><select id="nightNoteAssign" multiple size="4" aria-label="Assign follow up staff"></select></div>
             <div class="dmr-field"><label>Detailed Note</label><textarea id="nightNoteText" placeholder="Record maintenance issue, VIP requests, cleanliness observation..."></textarea></div>
             <div class="dmr-row" style="align-items:flex-end;">
               <div class="dmr-field" style="margin-bottom:0;">
@@ -4079,6 +4128,7 @@
   }
 
   function openDutyReport(date) {
+    if (state.user && state.user.role === 'security') return;
     state.actionPopup = false;
     goTo('duty', 'today');
     switchDate(date);

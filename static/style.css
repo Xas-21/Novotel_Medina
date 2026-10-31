@@ -1636,6 +1636,14 @@ body.nav-open { overflow: hidden; }
 .parking-spot:hover { transform: translateY(-2px); }
 .parking-spot:focus-visible { outline: 3px solid var(--brand-blue); outline-offset: 2px; }
 .parking-spot.available { background: var(--ok); }
+.parking-spot.available.holding { animation: parking-holding 1.8s ease-in-out infinite; }
+@keyframes parking-holding {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(46, 125, 76, 0); }
+  50% { box-shadow: 0 0 16px 6px rgba(110, 230, 140, 0.95); filter: brightness(1.25); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .parking-spot.available.holding { animation: none; box-shadow: 0 0 0 4px #8dff9a; }
+}
 .parking-spot.occupied { background: var(--danger); }
 .parking-spot.due-today { background: var(--warn); }
 .parking-spot.overdue { background: #5E1F1A; box-shadow: 0 0 0 2px var(--danger), 0 2px 4px rgba(0,0,0,0.1); }
@@ -1693,7 +1701,7 @@ body.nav-open { overflow: hidden; }
 .parking-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .parking-table tbody tr:hover { background: var(--paper); }
 .parking-none { text-align: center; color: var(--ink-soft); }
-.parking-more { margin: 10px 14px; }
+.parking-more { margin: 10px 14px 16px; text-align: center; }
 
 /* ---------- Dashboard (single screen) ---------- */
 .dash {

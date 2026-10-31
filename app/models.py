@@ -43,11 +43,13 @@ class NoteCreate(BaseModel):
     manager: Optional[str] = None
     time: Optional[str] = None
     status: str = "open"
+    assignees: List[str] = Field(default_factory=list)
 
 class NoteUpdate(BaseModel):
     status: Optional[str] = None
     priority: Optional[str] = None
     text: Optional[str] = None
+    assignees: Optional[List[str]] = None
 
 class NoteEvent(BaseModel):
     status: str
@@ -67,6 +69,8 @@ class NoteResponse(BaseModel):
     created_at: Optional[str] = None
     carried: bool = False
     timeline: list = []
+    createdBy: str = ""
+    assignees: List[str] = Field(default_factory=list)
 
 class ChecklistItem(BaseModel):
     status: Optional[bool] = None
